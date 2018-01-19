@@ -478,11 +478,11 @@ if __name__ == "__main__":
 
     if True: #'stations' not in locals():
         #stations = parseAsosFile('./data/asos.txt')
-        stations = defineStations('./data/asos-stations.txt')
+        stations = defineStations('../data/asos-stations.txt')
         empty_stations = []
         for key in stations.keys():
             call = stations[key].call
-            files = glob.glob('./data/asos/asos-fivemin/6401-2007/*'+call+'*')
+            files = glob.glob('../data/asos/asos-fivemin/6401-2016/*'+call+'*')
             if len(files) != 0:# and key == 'WVI':
                 for file in files:
                     data, dateTime = parseMETARfile(file)
@@ -506,7 +506,7 @@ if __name__ == "__main__":
     
     queryDateTime = dt.datetime(year=2007,month=6,day=15,hour=5,minute=53)
     timeRange = dt.timedelta(days=0,hours=24,minutes=0)
-    data = stations['WVI'].timeAverage(queryDateTime,timeRange)
+    data = stations['APC'].timeAverage(queryDateTime,timeRange)
     measurements = stationsGetMeasurements(stations,queryDateTime,timeRange)
     
 
