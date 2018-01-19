@@ -1,0 +1,4 @@
+ftp://ftp.ncdc.noaa.gov/pub/data/asos-fivemin/
+http://heras-gilsanz.com/manuel/METAR-Decoder.html
+http://wx.erau.edu/reference/text/metar_decode_key.pdf
+https://www.ncdc.noaa.gov/data-access/land-based-station-data
