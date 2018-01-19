@@ -1,0 +1,63 @@
+args:
+  report_plot: True
+  debug_plot: False
+  debug_save: False
+  debug_time: False
+  debug_plot_dog: False
+  cap_score: True
+  monotonicity_check: True
+  alignbytime : False
+  trim: True
+  cap_value: 12.0
+  dt: 10
+  datarefs: ['P0','P1','P2']
+  criteria: ['DoG', 'Bif', 'l2', 'Li', 'L2-*', 'Li-*']
+  manual_wts: [7.6923,1.0989,1.7299,1.4354,1.2097,0.5988]
+  agg_type: 'Sum'
+  log_level: 'info'
+  rules: ['np.min(x) > 40','np.max(x) < 100','np.max(x)-np.min(x) <= 20','np.max(y)-np.min(y) > 0.05']
+  dog_match_type: 'nn'
+  dog_desc_type: "bailly"
+data:
+  column: 4
+  datarange: [170, 420]
+  fileloc: ../Data/Unit2_simpletime.xlsx
+  header: 0
+  normalizetime: true
+  type: xlsx
+  manual_wts: [7.6923,1.0989,0.7299,1.4354,1.2097,0.5988]
+Drop:
+  column: 4
+  datarange: [199, 299]
+  fileloc: ../Data/Unit2_simpletime.xlsx
+  header: 0
+  normalizetime: true
+  type: xlsx
+P0:
+  column: 4
+  datarange: [300, 324]
+  fileloc: ../Data/Unit2_simpletime.xlsx
+  header: 0
+  normalizetime: true
+  type: xlsx
+P1:
+  column: 4
+  datarange: [329, 350]
+  fileloc: ../Data/Unit2_simpletime.xlsx
+  header: 0
+  normalizetime: true
+  type: xlsx
+P2:
+  column: 4
+  datarange: [343, 377]
+  fileloc: ../Data/Unit2_simpletime.xlsx
+  header: 0
+  normalizetime: true
+  type: xlsx
+sim:
+  column: 2
+  datarange: [3, 20000]
+  fileloc: ../Data/defaultsim.xlsx
+  header: [0,1]
+  type: xlsx
+
