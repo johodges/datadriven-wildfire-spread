@@ -11,41 +11,69 @@ import math
 import matplotlib.pyplot as plt
 from matplotlib.mlab import griddata
 import glob
+import pickle
+import sys
+import pandas as pd
 
-
-class ASOSMeasurement(object):
-    def __init__(self, dateTime=None,temperatureC=None,relativeH=None,
-                 directionDeg=None,speedKnot=None,speedMps=None,
-                 gustKnot=None,gustMph=None):
-        self.dateTime = dateTime
-        self.temperatureC = temperatureC
-        self.relativeH = relativeH
-        self.directionDeg = directionDeg
-        self.speedKnot = speedKnot
-        self.speedMps = speedMps
-        self.gustKnot = gustKnot
-        self.gustMph = gustMph
-        if speedMps is not None and directionDeg is not None:
-            self.speedX = speedMps*np.sin(directionDeg/180*math.pi)
-            self.speedY = speedMps*np.cos(directionDeg/180*math.pi)
-        else:
-            self.speedX = None
-            self.speedY = None
+class ASOSMeasurementList(object):
+    __slots__ = ['dateTime','temperatureC','relativeH','directionDeg','speedMps','gustMps']
     
-    def convertKnots(self):
-        if self.speedKnot is not None:
-            self.speedMps = self.speedKnot*0.514444
-            self.speedMph = self.speedKnot*1.15078
-        if self.gustKnot is not None:
-            self.gustMps = self.gustKnot*0.514444
-            self.gustMph = self.gustKnot*1.15078
+    def __init__(self):
+        self.dateTime = []
+        self.temperatureC = []
+        self.relativeH = []
+        self.directionDeg = []
+        self.speedMps = []
+        self.gustMps = []
+    
+    def addTime(self,dateTime,temperatureC,relativeH,directionDeg,speedMps,gustMps):
+        self.dateTime.append(dateTime)
+        self.temperatureC.append(temperatureC)
+        self.relativeH.append(relativeH)
+        self.directionDeg.append(directionDeg)
+        self.speedMps.append(speedMps)
+        self.gustMps.append(gustMps)
+
+"""
+class ASOSMeasurement(object):
+    __slots__ = ['dateTime','temperatureC','relativeH','directionDeg','speedMps','gustMps']
+                 #'day','hour','minute','year','month']
+                 #'auto','sky_condition','weather_condition','temperature_dew','sm','directionDegVar','rvr',
+                 
+    def __init__(self,dateTime=None):
+        self.dateTime = dateTime
+        self.temperatureC = None
+        self.relativeH = None
+        self.directionDeg = None
+        self.speedMps = None
+        
+        self.gustMps = None
+        #self.day = None
+        #self.hour = None
+        #self.minute = None
+        #self.year = None
+        #self.month = None
+    
+    def computeMemory(self):
+        slots = self.__slots__
+        #slots = ['dateTime','temperatureC','relativeH','directionDeg','speedKnot','speedMps','gustKnot','gustMps',
+        #     'speedX','speedY','day','hour','minute','year','month',
+             #'auto','sky_condition','weather_condition','temperature_dew','sm','directionDegVar','rvr',
+        #     'speedMph','gustMph']
+        mem = 0
+        for key in slots:
+            mem = mem+sys.getsizeof(getattr(self,key))/1024**2
+        return mem
+    
+    def convertKnots(self,speedKnot):
+        if speedKnot is not None:
+            speedMps = speedKnot*0.514444
+        return speedMps
         
     def convertVector(self):
-        if self.speedMps is None:
-            self.convertKnots()
-        if self.directionDeg == 'VRB':
-            self.speedX = self.speedMps*2**0.5
-            self.speedY = self.speedMps*2**0.5
+        if self.directionDeg == -1:
+            speedX = self.speedMps*2**0.5
+            speedY = self.speedMps*2**0.5
         elif self.directionDeg is None:
             pass
             #print("Wind direction was not set.")
@@ -54,124 +82,176 @@ class ASOSMeasurement(object):
             #print("Wind speed was not set.")
         else:
             try:
-                self.speedX = self.speedMps*np.sin(self.directionDeg/180*math.pi)
-                self.speedY = self.speedMps*np.cos(self.directionDeg/180*math.pi)
+                speedX = self.speedMps*np.sin(self.directionDeg/180*math.pi)
+                speedY = self.speedMps*np.cos(self.directionDeg/180*math.pi)
             except:
                 assert False, "Unknown wind vector: %s Mps %s Deg" % (str(self.speedMps),str(self.directionDeg))
+        return speedX, speedY
     
     def __str__(self):
-        string = "dateTime:\t\t%s\n"%self.dateTime
-        string += "temperatureC:\t%.2f\n"%self.temperatureC
-        string += "relativeH:\t\t%.2f\n"%self.relativeH
-        string += "speedX:\t\t\t%.2f\n"%self.speedX
-        string += "speedY:\t\t\t%.2f\n"%self.speedY
+        try:
+            string = "dateTime:\t\t%s\n"%self.dateTime
+        except:
+            pass
+        try:
+            string += "temperatureC:\t%.2f degC\n"%self.temperatureC
+        except:
+            pass
+        try:
+            string += "relativeH:\t\t%.2f \%\n"%self.relativeH
+        except:
+            pass
+        try:
+            string += "WindSpeed:\t\t\t%.2f m/s\n"%self.speedMps
+        except:
+            pass
+        try:
+            string += "WindDir:\t\t\t%.2f deg\n"%self.directionDeg
+        except:
+            pass
         return string
     
     def __repr__(self):
         return self.__str__()
+"""
 
 class ASOSStation(object):
+    __slots__ = ['latitude','longitude','name','call',
+                 'dateTime','temperatureC','relativeH','directionDeg','speedMps','gustMps',
+                 #'ncdcid','wban','coopid','aname','country','state','county','elevation','utc','stntype',
+                 'dateTime']
+    
     def __init__(self,info):
-        self.ncdcid = info[0]
-        self.wban = info[1]
-        self.coopid = info[2]
+        #self.ncdcid = info[0]
+        #self.wban = info[1]
+        #self.coopid = info[2]
         self.call = info[3]
         self.name = info[4]
-        self.aname = info[5]
-        self.country = info[6]
-        self.state = info[7]
-        self.county = info[8]
+        #self.aname = info[5]
+        #self.country = info[6]
+        #self.state = info[7]
+        #self.county = info[8]
         self.latitude = info[9]
         self.longitude = info[10]
-        self.elevation = info[11]
-        self.utc = info[12]
-        self.stntype = info[13]
+        #self.elevation = info[11]
+        #self.utc = info[12]
+        #self.stntype = info[13]
         
-        self.data = [] # List of measurements
+        self.temperatureC = [] # List of temperature measurements in deg C
+        self.relativeH = [] # List of relative humidity measurements
+        self.directionDeg = [] # List of wind direction in degrees
+        self.speedMps = [] # List of wind speed measurements in m/s
+        self.gustMps = [] # List of wind gust speed measuremetns in m/s
         self.dateTime = [] # List of time stamps
         
-    def old_init2(self, splitLine):
-        self.name = splitLine[0] # Station name
-        self.longitude = float(splitLine[2]) # Station longitude
-        self.latitude = float(splitLine[3]) # Station latitude
-        self.data = [] # List of measurements
-        self.dateTime = [] # List of time stamps
+    def computeMemory(self):
+        mem = 0
+        slots = self.__slots__
+        #slots = ['latitude','longitude','name','call',
+                 #'ncdcid','wban','coopid','aname','country','state','county','elevation','utc','stntype',
+        #         'data','dateTime']
+        for key in slots:
+            if type(key) == list:
+                mem = mem + sys.getsizeof(getattr(self,key))/1024**2
+            else:
+                mem = mem+sys.getsizeof(getattr(self,key))/1024**2
+        return mem
+
+    def convertKnots(self,speedKnot):
+        if speedKnot is not None:
+            speedMps = speedKnot*0.514444
+        return speedMps
     
     def __str__(self):
         string = "%s ASOS Station\n"%(self.name)
-        string = string + "\tTotal measurements:\t%.0f\n"%(len(self.data))
+        string = string + "\tTotal measurements:\t%.0f\n"%(len(self.dateTime))
         string = string + "\tEarliest dateTime:\t%s\n"%(min(self.dateTime))
         string = string + "\tLatest dateTime:\t%s\n"%(max(self.dateTime))
         return string
     
     def __repr__(self):
         return self.__str__()
+
+    def addTime(self,data):
+        self.temperatureC.extend(data.temperatureC)
+        self.relativeH.extend(data.relativeH)
+        self.directionDeg.extend(data.directionDeg)
+        self.speedMps.extend(data.speedMps)
+        self.gustMps.extend(data.gustMps)
+        self.dateTime.extend(data.dateTime)
     
-    def old_init(self):
-        self.dateTime = [] # Time stamp
-        self.temperatureC = [] # Air temperature in Celcius, typicall @ 2m
-        self.relativeH = [] # Relative humidity percentage
-        self.directionDeg = [] # Wind direction in degrees from north
-        self.speedKnot = [] # Wind speed in knots
-        self.speedMps = [] # Wind speed in m/s
-        self.gustKnot = [] # Wind gust in knots
-        self.gustMph = [] # Wind gust in miles per hour
-        self.speedX = [] # X-component wind speed in m/s (East positive)
-        self.speedY = [] # Y-component wind speed in m/s (North positive)
-    
-    def addTime(self,splitLine):
-        year = int(splitLine[1][0:4])
-        month = int(splitLine[1][5:7])
-        day = int(splitLine[1][8:10])
-        hour = int(splitLine[1][11:13])
-        minute = int(splitLine[1][14:16])
-        dateTime = dt.datetime(year=year,month=month,day=day,hour=hour,minute=minute)
-        for i in range(4,11):
-            try:
-                splitLine[i] = float(splitLine[i])
-            except ValueError:
-                splitLine[i] = np.nan
-        temperatureC = splitLine[4]
-        relativeH = splitLine[5]
-        directionDeg = splitLine[6]
-        speedKnot = splitLine[7]
-        speedMps = splitLine[8]
-        gustKnot = splitLine[9]
-        gustMph = splitLine[10]
-        data = ASOSMeasurement(dateTime,temperatureC,relativeH,
-                               directionDeg,speedKnot,speedMps,gustKnot,gustMph)
-        self.dateTime.append(dateTime)
-        self.data.append(data)
-    
-    def addTime_old(self,splitLine):
-        year = int(splitLine[1][0:4])
-        month = int(splitLine[1][5:7])
-        day = int(splitLine[1][8:10])
-        hour = int(splitLine[1][11:13])
-        minute = int(splitLine[1][14:16])
-        self.dateTime.append(dt.datetime(year=year,month=month,day=day,hour=hour,minute=minute))
-        for i in range(4,11):
-            try:
-                splitLine[i] = float(splitLine[i])
-            except ValueError:
-                splitLine[i] = np.nan
-        self.temperatureC.append(splitLine[4])
-        self.relativeH.append(splitLine[5])
-        self.directionDeg.append(splitLine[6])
-        self.speedKnot.append(splitLine[7])
-        self.speedMps.append(splitLine[8])
-        self.gustKnot.append(splitLine[9])
-        self.gustMph.append(splitLine[10])
-        self.speedX.append(splitLine[8]*np.sin(splitLine[6]/180*math.pi))
-        self.speedY.append(splitLine[8]*np.cos(splitLine[6]/180*math.pi))
+    def timeAverage2(self,timeRange):
+        minDateTime = min(self.dateTime)
+        maxDateTime = max(self.dateTime)
+        
+        currentDateTime = dt.datetime(year=minDateTime.year,month=minDateTime.month,day=minDateTime.day,hour=minDateTime.hour)
+        data = []
+        i = 0
+        while currentDateTime < maxDateTime:
+            data.append(self.extractTimeAverage(currentDateTime,timeRange))
+            currentDateTime = currentDateTime+timeRange*2
+            if i % 100 == 0:
+                print('currentDateTime: %s\nMaxDateTime: %s'%(currentDateTime,maxDateTime))
+            i = i+1
+        data = np.array(data)
+        print(data.shape)
+        self.dateTime = data[:,0]
+        self.temperatureC = data[:,1]
+        self.relativeH = data[:,2]
+        self.directionDeg = data[:,3]
+        self.speedMps = data[:,4]
+        self.gustMps = data[:,5]
+
+    def timeAverage(self,timeRange):
+        dateTimeNp = []
+        for i in self.dateTime:
+            dateTimeNp.append(np.datetime64(i))
+        dateTimeNp = np.array(dateTimeNp)
+        deltaTimeNp = np.array(dateTimeNp-dateTimeNp[0],dtype=np.float32)
+        deltaTimeNp = deltaTimeNp/(10**6*3600)
+        temperatureC = np.array(self.temperatureC,dtype=np.float32)
+        relativeH = np.array(self.relativeH,dtype=np.float32)
+        directionDeg = np.array(self.directionDeg,dtype=np.float32)
+        speedMps = np.array(self.speedMps,dtype=np.float32)
+        gustMps = np.array(self.gustMps,dtype=np.float32)
+        #dataPd = pd.DataFrame([dateTimeNp,temperatureC,relativeH,directionDeg,speedMps,gustMps]).T
+        dataNp = np.array([deltaTimeNp,temperatureC,relativeH,directionDeg,speedMps,gustMps],dtype=np.float32).T
+        return dataNp
         
     def findTime(self,queryDateTime):
         bestMatchValue = min(self.dateTime, key=lambda d: abs(d-queryDateTime))
         bestMatchIndex = self.dateTime.index(bestMatchValue)
         return bestMatchIndex
-    
-    def timeAverage(self,queryDateTime,timeRange):
-        data = ASOSMeasurement()
+
+    def extractTimeAverage(self,queryDateTime,timeRange):
+        def list2avg(dataL,inds):
+            dataNp = np.array(dataL)
+            dataNp[dataNp == None] = np.nan
+            dataNp = np.array(dataNp,dtype=np.float32)
+            if not np.all(np.isnan(dataNp[inds[0]:inds[1]])):
+                data = np.nanmean(dataNp[inds[0]:inds[1]])
+                return data
+            else:
+                return np.nan
+            
+        bestLowValue = min(self.dateTime, key=lambda d: abs(d-(queryDateTime-timeRange)))
+        bestHighValue = min(self.dateTime, key=lambda d: abs(d-(queryDateTime+timeRange)))
+        bestLowIndex = self.dateTime.index(bestLowValue)
+        bestHighIndex = self.dateTime.index(bestHighValue)
+        bestMatchValue = min(self.dateTime, key=lambda d: abs(d-(queryDateTime)))
+        bestMatchIndex = self.dateTime.index(bestMatchValue)
+        
+        temperatureC = list2avg(self.temperatureC,[bestLowIndex,bestHighIndex+1])
+        relativeH = list2avg(self.relativeH,[bestLowIndex,bestHighIndex+1])
+        directionDeg = list2avg(self.directionDeg,[bestLowIndex,bestHighIndex+1])
+        speedMps = list2avg(self.speedMps,[bestLowIndex,bestHighIndex+1])
+        gustMps = list2avg(self.gustMps,[bestLowIndex,bestHighIndex+1])
+        
+        return np.array([queryDateTime,temperatureC,relativeH,directionDeg,speedMps,gustMps])
+
+    """
+    def extractTimeAverage2(self,queryDateTime,timeRange):
+        data = ASOSMeasurement(queryDateTime)
         bestMatchValue = min(self.dateTime, key=lambda d: abs(d-queryDateTime))
         bestLowValue = min(self.dateTime, key=lambda d: abs(d-(queryDateTime-timeRange)))
         bestHighValue = min(self.dateTime, key=lambda d: abs(d-(queryDateTime+timeRange)))
@@ -182,40 +262,52 @@ class ASOSStation(object):
         temperatureC = []
         relativeH = []
         directionDeg = []
-        speedKnot = []
         speedMps = []
-        gustKnot = []
-        gustMph = []
+        gustMps = []
         
         for i in range(bestLowIndex,bestHighIndex+1):
             temperatureC.append(self.data[i].temperatureC) if self.data[i].temperatureC is not None else temperatureC.append(np.nan)
             relativeH.append(self.data[i].relativeH) if self.data[i].relativeH is not None else relativeH.append(np.nan)
-            directionDeg.append(self.data[i].directionDeg) if (self.data[i].directionDeg is not None and self.data[i].directionDeg != 'VRB') else directionDeg.append(np.nan)
-            speedKnot.append(self.data[i].speedKnot) if self.data[i].speedKnot is not None else speedKnot.append(np.nan)
-            gustKnot.append(self.data[i].gustKnot) if self.data[i].gustKnot is not None else gustKnot.append(np.nan)
+            directionDeg.append(self.data[i].directionDeg) if (self.data[i].directionDeg is not None and self.data[i].directionDeg != -1) else directionDeg.append(np.nan)
+            speedMps.append(self.data[i].speedMps) if self.data[i].speedMps is not None else speedMps.append(np.nan)
+            gustMps.append(self.data[i].gustMps) if self.data[i].gustMps is not None else gustMps.append(np.nan)
             
-        dateTime = queryDateTime
         temperatureC = np.nanmean(temperatureC) if (temperatureC and all(v is not None for v in temperatureC)) else None
         relativeH = np.nanmean(relativeH) if (relativeH and all(v is not None for v in relativeH)) else None
         directionDeg = np.nanmean(directionDeg) if (directionDeg and all(v is not None for v in directionDeg)) else None
-        speedKnot = np.nanmean(speedKnot) if (speedKnot and all(v is not None for v in speedKnot)) else None
-        gustKnot = np.nanmean(gustKnot) if (gustKnot and all(v is not None for v in gustKnot)) else None
+        speedMps = np.nanmean(speedMps) if (speedMps and all(v is not None for v in speedMps)) else None
+        gustMps = np.nanmean(gustMps) if (gustMps and all(v is not None for v in gustMps)) else None
         
         data.temperatureC = temperatureC
         data.relativeH = relativeH
         data.directionDeg = directionDeg
-        data.speedKnot = speedKnot
+        data.speedMps = speedMps
         
-        data.convertKnots()
-        data.convertVector()
+        #data.convertVector()
 
         return data
+    """
     
     def sortMeasurements(self):
-        sorted_data = [x for _, x in sorted(zip(self.dateTime,self.data), key=lambda pair: pair[0])]
-        self.data = sorted_data.copy()
+        self.temperatureC = [x for _, x in sorted(zip(self.dateTime,self.temperatureC), key=lambda pair: pair[0])]
+        self.relativeH = [x for _, x in sorted(zip(self.dateTime,self.relativeH), key=lambda pair: pair[0])]
+        self.directionDeg = [x for _, x in sorted(zip(self.dateTime,self.directionDeg), key=lambda pair: pair[0])]
+        self.speedMps = [x for _, x in sorted(zip(self.dateTime,self.speedMps), key=lambda pair: pair[0])]
+        self.gustMps = [x for _, x in sorted(zip(self.dateTime,self.gustMps), key=lambda pair: pair[0])]
         self.dateTime.sort()
-        
+
+
+
+
+def convertKnots(speedKnot):
+    if speedKnot is not None:
+        speedMps = speedKnot*0.514444
+    return speedMps
+
+
+
+
+
 def parseAsosFile(filename):
 
     with open(filename) as f:
@@ -304,73 +396,67 @@ def defineStations(filename):
             #    stations[CALL].addTime(splitLine)
     return stations
     
-    #return stations
 
-def parseMETARline(line):
+def parseMETARline(line,debug=False):
     line_split = line.split(' ')
     start_index = line_split.index('5-MIN') if '5-MIN' in line_split else -1
     if start_index == -1:
-        print("Unable to find 5-MIN string to start parsing:")
-        print(line)
+        print("Unable to find 5-MIN string to start parsing:") if debug else -1
+        print(line) if debug else -1
         return None
     end_index = line_split.index('RMK') if 'RMK' in line_split else -1
     line_split = line_split[start_index+1:end_index]
-    """
-    try:
-        if 'RMK' in line:
-            line_split = line_split[line_split.index('5-MIN')+1:line_split.index('RMK')]
-            rmk = True
-            rmk_text = line.split('RMK')[1].strip()
-        else:
-            line_split = line_split[line_split.index('5-MIN')+1:]
-    except:
-       print(line_split)
-    """
-    data = ASOSMeasurement()
     
     filecall = line_split[0]
     if line_split[1][0:-1].isdigit() and len(line_split[1]) == 7:
-        data.day = int(line_split[1][0:2])
-        data.hour = int(line_split[1][2:4])
-        data.minute = int(line_split[1][4:6])
+        pass
+        day = int(line_split[1][0:2])
+        hour = int(line_split[1][2:4])
+        minute = int(line_split[1][4:6])
     else:
         return None
-    data.auto = False
+    #data.auto = False
     sm = 0
-    data.sky_condition = []
-    data.weather_condition = []
-    data.temperatureC = None
-    data.temperature_dew = 'M'
+    #data.sky_condition = []
+    #data.weather_condition = []
+    temperatureC = None
+    relativeH = None
+    directionDeg = None
+    speedMps = None
+    gustMps = None
+    #data.temperature_dew = 'M'
 
     line_split = [x for x in line_split if x]
     for i in range(2,len(line_split)):
         if line_split[i] == 'AUTO':
-            data.auto = True
+            #data.auto = True
+            pass
         elif 'KT' in line_split[i]:
             filewind = line_split[i].split('KT')[0]
             if 'G' in filewind:
                 if filewind.split('G')[1].isdigit():
-                    data.gustKnot = float(filewind.split('G')[1])
+                    gustMps = convertKnots(float(filewind.split('G')[1]))
                 else:
-                    print("Failed to parse wind gust:")
-                    print(line)
+                    print("Failed to parse wind gust:") if debug else -1
+                    print(line) if debug else -1
                 filewind = filewind.split('G')[0]
             if 'VRB' in filewind:
                 filewind = filewind.split('VRB')[1]
-                data.directionDeg = 'VRB'
+                directionDeg = -1
             else:
                 try:
-                    data.directionDeg = float(filewind[0:3])
+                    directionDeg = float(filewind[0:3])
                 except:
-                    print("Error parsing direction.")
-                    print(line)
+                    print("Error parsing direction.") if debug else -1
+                    print(line) if debug else -1
             try:
-                data.speedKnot = float(filewind[-2:])
+                speedMps = convertKnots(float(filewind[-2:]))
             except:
-                print("Error parsing windspeed.")
-                print(line)
+                print("Error parsing windspeed.") if debug else -1
+                print(line) if debug else -1
         elif 'V' in line_split[i] and len(line_split[i]) == 7 and 'KT' in line_split[i-1]:
-            data.directionDegVar = [float(line_split[i][0:3]),float(line_split[i][4:])]
+            #data.directionDegVar = [float(line_split[i][0:3]),float(line_split[i][4:])]
+            pass
             
         elif 'SM' in line_split[i]:
             linesm = line_split[i].split('SM')[0]
@@ -378,26 +464,28 @@ def parseMETARline(line):
                 if linesm[0] == 'M':
                     linesm = linesm[1:]
             except:
-                print(line_split[i])
+                print(line_split[i]) if debug else -1
             if '/' in linesm:
                 if linesm.split('/')[0].isdigit() and linesm.split('/')[1].isdigit():
                     sm += float(linesm.split('/')[0])/float(linesm.split('/')[1])
-                    print("Error parsing visibility:")
-                    print(line)
+                    print("Error parsing visibility:") if debug else -1
+                    print(line) if debug else -1
             else:
                 try:
                     sm += float(linesm)
                 except:
-                    print("Error parsing visibility:")
-                    print(line)
+                    print("Error parsing visibility:") if debug else -1
+                    print(line) if debug else -1
 
         elif line_split[i][0] == 'R' and len(line_split[i]) >= 10:
             if line_split[i][-2:] == 'FT':
-                data.rvr = line_split[i]
+                #data.rvr = line_split[i]
+                pass
         elif ('BKN' in line_split[i] or 'CLR' in line_split[i]
                 or 'FEW' in line_split[i] or 'SCT' in line_split[i]
                 or 'OVC' in line_split[i]):
-            data.sky_condition.append([line_split[i][0:3],line_split[i][3:]])
+            #data.sky_condition.append([line_split[i][0:3],line_split[i][3:]])
+            pass
         elif ('RA' in line_split[i] or 'SN' in line_split[i] 
                 or 'UP' in line_split[i] or 'FG' in line_split[i]
                 or 'FZFG' in line_split[i] or 'BR' in line_split[i]
@@ -405,13 +493,14 @@ def parseMETARline(line):
                 or 'FC' in line_split[i] or 'TS' in line_split[i]
                 or 'GR' in line_split[i] or 'GS' in line_split[i]
                 or 'FZRA' in line_split[i] or 'VA' in line_split[i]):
-            data.weather_condition.append(line_split[i])
+            #data.weather_condition.append(line_split[i])
+            pass
         elif line_split[i][0] == 'A' and len(line_split[i]) == 5:
             try:
-                data.altimeter = float(line_split[i][1:])
+                altimeter = float(line_split[i][1:])
             except:
-                print("Error parsing altitude.")
-                print(line)
+                print("Error parsing altitude.") if debug else -1
+                print(line) if debug else -1
         elif '/' in line_split[i] and len(line_split[i]) == 5: #data.temperatureC == None:
             linetemp = line_split[i].split('/')
             temperature_air_sign = 1
@@ -423,19 +512,22 @@ def parseMETARline(line):
                 temperature_dew_sign = -1
                 linetemp[1] = linetemp[1].split('M')[1]
             if linetemp[0].isdigit():
-                data.temperatureC = float(linetemp[0])*temperature_air_sign
+                temperatureC = float(linetemp[0])*temperature_air_sign
             if linetemp[1].isdigit():
-                data.temperature_dew = float(linetemp[1])*temperature_dew_sign
+                #data.temperature_dew = float(linetemp[1])*temperature_dew_sign
+                temperatureDew = float(linetemp[1])*temperature_dew_sign
+                pass
             if linetemp[0].isdigit() and linetemp[1].isdigit():
-                data.relativeH = 100-5*(data.temperatureC-data.temperature_dew)
+                #data.relativeH = 100-5*(data.temperatureC-data.temperature_dew)
+                relativeH = 100-5*(temperatureC-temperatureDew)
         else:
             if i < len(line_split)-1:
                 if 'SM' in line_split[i+1] and '/' in line_split[i+1] and line_split[i].isdigit():
                     try:
                         sm += float(line_split[i])
                     except:
-                        print(line)
-                        print(line_split)
+                        print(line) if debug else -1
+                        print(line_split) if debug else -1
                 else:
                     pass
                     #print('Unknown argument %s at %.0f.' % (line_split[i],0))
@@ -443,57 +535,108 @@ def parseMETARline(line):
                 pass
                 #print('Unknown argument %s at %.0f.' % (line_split[i],1))
     if sm == 0:
-        data.sm = None
+        #data.sm = None
+        pass
     else:
-        data.sm = sm
+        #data.sm = sm
+        pass
     
-    data.convertKnots()
-    data.convertVector()
-    return data
-  
-  
+    return [temperatureC,relativeH,directionDeg,speedMps,gustMps], [day,hour,minute]
+
+
+
+
+
+
+
 def parseMETARfile(file):
-    datas = []
     dateTimes = []
+    datas = ASOSMeasurementList()
     with open(file) as f:
         old_day = 0
         content = f.readlines()
-        for line in content:
-            data = parseMETARline(line)
-            if data is not None:
-                data.year = int(file[-10:-6])
-                data.month = int(file[-6:-4])
-                if data.day < old_day:
-                    data.month = data.month + 1
-                if data.month > 12:
-                    data.month = 1
-                    data.year = data.year + 1
-                old_day = data.day
-                data.dateTime = dt.datetime(year=data.year,month=data.month,day=data.day,hour=data.hour,minute=data.minute)
-                datas.append(data)
-                dateTimes.append(data.dateTime)
+        if content is not None:
+            #print(len(content))
+            i = 0
+            for line in content:
+                data = None
+                try:
+                    data, times = parseMETARline(line)
+                except:
+                    print("Failed to parse the METAR line in file %s line %.0f."%(file,i))
+                    pass
+                day = times[0]
+                hour = times[1]
+                minute = times[2]
+                if data is not None:
+                    year = int(file[-10:-6])
+                    month = int(file[-6:-4])
+                    if day < old_day:
+                        month = month + 1
+                    if month > 12:
+                        month = 1
+                        year = year + 1
+                    old_day = day
+                    dateTime = dt.datetime(year=year,month=month,day=day,hour=hour,minute=minute)
+                    datas.addTime(dateTime,data[0],data[1],data[2],data[3],data[4])
+                i = i+1
     return datas, dateTimes
+
+def readStationsFromText(filename='../data-test/asos-stations.txt',datadir='E:/WildfireResearch/data/asos-fivemin/6401-2016/'):
+    stations = defineStations(filename)
+    empty_stations = []
+    totalMem = 0
+    for key in stations.keys():
+        call = stations[key].call
+        files = glob.glob(datadir+'*'+call+'*')
+        if len(files) != 0:# and key == 'WVI':
+            for file in files:
+                data, dateTime = parseMETARfile(file)
+                stations[key].addTime(data)
+                #stations[key].addTime(data)
+                stations[key].dateTime.extend(dateTime)
+            localMem = stations[key].computeMemory()
+            totalMem = totalMem+localMem
+            print("Finished %s, Memory: %0.4f MB Total Memory: %.04f MB"%(key,stations[key].computeMemory(),totalMem))
+        else:
+            empty_stations.append(key)  
+            print("%s was empty."%(key))
+    for key in empty_stations:
+        stations.pop(key,None)
+    print("Finished %s, total Memory: %0.4f MB"%(key,computeStationsMemory(stations,printSummary=False)))
+    return stations
+
+def dumpPickleStations(stations,filename='../data-test/asos-stations.pkl'):
+    with open(filename,'wb') as f:
+        pickle.dump(stations,f)
+        
+def readPickleStations(filename='../data-test/asos-stations.pkl'):
+    with open(filename,'rb') as f:
+        stations = pickle.load(f)
+    return stations
+
+def computeStationsMemory(stations,printSummary=True):
+    mem = 0
+    for station in stations:
+        mem2 = stations[station].computeMemory()
+        print("Station %s Memory %.4f"%(station,mem2))
+        mem = mem+mem2
+    print("Total Memory: %0.4f MB"%(mem)) if printSummary else -1
+    return mem
 
 if __name__ == "__main__":
 
     if True: #'stations' not in locals():
-        #stations = parseAsosFile('./data/asos.txt')
-        stations = defineStations('../data/asos-stations.txt')
-        empty_stations = []
-        for key in stations.keys():
-            call = stations[key].call
-            files = glob.glob('../data/asos/asos-fivemin/6401-2016/*'+call+'*')
-            if len(files) != 0:# and key == 'WVI':
-                for file in files:
-                    data, dateTime = parseMETARfile(file)
-                    stations[key].data.extend(data)
-                    stations[key].dateTime.extend(dateTime)
-            else:
-                empty_stations.append(key)  
-            print("Finished %s"%key)
-        for key in empty_stations:
-            stations.pop(key,None)
+        #datadir='../data-test/asos/asos-fivemin/6401-2016/'
+        datadir='../data-test/asos/asos-fivemin/smallset/'
+        #datadir='../data-test/asos/asos-fivemin/breaks/'
+        stations = readStationsFromText(datadir=datadir)
         
+        #stations = readStationsFromText()
+    
+    for key in stations:
+        stations[key].sortMeasurements()
+    
     geoLimits = findGeoLimits(stations)
     
     # 1 degree is approximately 69 miles, or 111 km
@@ -501,12 +644,19 @@ if __name__ == "__main__":
     # to match modis resolution
     resolution = 111 # pixels per degree
     
-    latGrid = np.linspace(geoLimits[0]-1,geoLimits[1]+1,(geoLimits[1]-geoLimits[0]+2)*resolution+1)
-    lonGrid = np.linspace(geoLimits[2]-1,geoLimits[3]+1,(geoLimits[3]-geoLimits[2]+2)*resolution+1)
+    latGrid = np.linspace(geoLimits[0]-1,geoLimits[1]+1,int((geoLimits[1]-geoLimits[0]+2)*resolution+1))
+    lonGrid = np.linspace(geoLimits[2]-1,geoLimits[3]+1,int((geoLimits[3]-geoLimits[2]+2)*resolution+1))
     
     queryDateTime = dt.datetime(year=2007,month=6,day=15,hour=5,minute=53)
-    timeRange = dt.timedelta(days=0,hours=24,minutes=0)
-    data = stations['APC'].timeAverage(queryDateTime,timeRange)
+    timeRange = dt.timedelta(days=0,hours=0,minutes=30)
+    dataNp = stations['AAT'].timeAverage(timeRange)
+    deltat = 1
+    maxt = np.floor(np.max(dataNp[:,0]))
+    mint = np.min(dataNp[:,0])
+    t = np.linspace(mint,maxt,(maxt-mint)/deltat+1)
+    dataNpI = np.interp(t,dataNp[:,0],dataNp[:,3])
+    
+    """
     measurements = stationsGetMeasurements(stations,queryDateTime,timeRange)
     
 
@@ -524,6 +674,7 @@ if __name__ == "__main__":
     plt.colorbar()
     plt.xlim([-126,-114])
     plt.ylim([32,42])
+    """
 
     
     
