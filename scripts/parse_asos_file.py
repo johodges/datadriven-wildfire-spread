@@ -14,6 +14,7 @@ import glob
 import pickle
 import sys
 import pandas as pd
+import xml.etree.ElementTree as ET
 
 class ASOSMeasurementList(object):
     __slots__ = ['dateTime','temperatureC','relativeH','directionDeg','speedMps','gustMps']
@@ -216,6 +217,28 @@ class ASOSStation(object):
         gustMps = np.array(self.gustMps,dtype=np.float32)
         #dataPd = pd.DataFrame([dateTimeNp,temperatureC,relativeH,directionDeg,speedMps,gustMps]).T
         dataNp = np.array([deltaTimeNp,temperatureC,relativeH,directionDeg,speedMps,gustMps],dtype=np.float32).T
+        
+        dataNp = nanInterp(dataNp.copy())
+    
+        deltat = 2*(timeRange.days*24+(0+(timeRange.seconds+timeRange.microseconds/10**6)/60)/60)
+        maxt = np.floor(np.max(dataNp[:,0]))
+        mint = np.min(dataNp[:,0])
+        t = np.linspace(mint,maxt,int((maxt-mint)/deltat+1))
+        dataNpI = np.zeros((len(t),dataNp.shape[1]),dtype=np.float32)
+        dataNpI[:,0] = t
+        dateTime = []
+        basetime = min(self.dateTime)
+        for i in range(1,dataNp.shape[1]):
+            dataNpI[:,i] = np.interp(t,dataNp[:,0],dataNp[:,i])
+        for i in range(0,dataNpI.shape[0]):
+            dateTime.append(dt.timedelta(hours=int(dataNpI[i,0]))+basetime)
+        self.dateTime = dateTime
+        self.temperatureC = dataNpI[:,1]
+        self.relativeH = dataNpI[:,2]
+        self.directionDeg = dataNpI[:,3]
+        self.speedMps = dataNpI[:,4]
+        self.gustMps = dataNpI[:,5]        
+        
         return dataNp
         
     def findTime(self,queryDateTime):
@@ -355,11 +378,32 @@ def stationsSortMeasurements(stations):
         value.sortMeasurements()
     return stations
 
+def convertVector(speedMps,directionDeg):
+    if directionDeg == -1:
+        speedX = speedMps*2**0.5
+        speedY = speedMps*2**0.5
+    elif directionDeg is None:
+        pass
+        print("Wind direction was not set.")
+    elif speedMps is None:
+        pass
+        print("Wind speed was not set.")
+    else:
+        try:
+            speedX = speedMps*np.sin(directionDeg/180*math.pi)
+            speedY = speedMps*np.cos(directionDeg/180*math.pi)
+        except:
+            assert False, "Unknown wind vector: %s Mps %s Deg" % (str(speedMps),str(directionDeg))
+    return speedX, speedY
+
 def stationsGetMeasurements(stations,queryDateTime,timeRange):
     measurements = []
     for key, value in stations.items():
-        data = value.timeAverage(queryDateTime,timeRange)
-        measurements.append([value.latitude,value.longitude,data.speedX,data.speedY])
+        data = value.extractTimeAverage(queryDateTime,timeRange)
+        directionDeg = data[3]
+        speedMps = data[4]
+        speedX, speedY = convertVector(speedMps,directionDeg)
+        measurements.append([value.latitude,value.longitude,speedX,speedY])
     measurements = np.array(measurements)
     return measurements
 
@@ -582,7 +626,9 @@ def parseMETARfile(file):
                 i = i+1
     return datas, dateTimes
 
-def readStationsFromText(filename='../data-test/asos-stations.txt',datadir='E:/WildfireResearch/data/asos-fivemin/6401-2016/'):
+def readStationsFromText(filename='../data-test/asos-stations.txt',
+                         datadir='E:/WildfireResearch/data/asos-fivemin/6401-2016/',
+                         timeRange = dt.timedelta(days=0,hours=0,minutes=30)):
     stations = defineStations(filename)
     empty_stations = []
     totalMem = 0
@@ -596,8 +642,11 @@ def readStationsFromText(filename='../data-test/asos-stations.txt',datadir='E:/W
                 #stations[key].addTime(data)
                 stations[key].dateTime.extend(dateTime)
             localMem = stations[key].computeMemory()
-            totalMem = totalMem+localMem
-            print("Finished %s, Memory: %0.4f MB Total Memory: %.04f MB"%(key,stations[key].computeMemory(),totalMem))
+            _ = stations[key].timeAverage(timeRange)
+            reducMem = stations[key].computeMemory()
+            totalMem = totalMem+reducMem
+            print("Station %s\n\tRaw memory:\t%.04f MB\n\tReduced Memory:\t%0.4f MB\n\tTotal Memory:\t%.04f MB"%(key,localMem,reducMem,totalMem))
+    
         else:
             empty_stations.append(key)  
             print("%s was empty."%(key))
@@ -624,20 +673,70 @@ def computeStationsMemory(stations,printSummary=True):
     print("Total Memory: %0.4f MB"%(mem)) if printSummary else -1
     return mem
 
+def nanInterp(data):
+    x = data[:,0]
+    for i in range(1,len(data[0,:])):
+        #print(i)
+        y = data[:,i]
+        #print("Overall y shape:")
+        #print(y.shape)
+        #print("len(np.where(y==np.nan)),data[np.where(y==np.nan)[0]]:")
+        #print(len(np.where(y==np.nan)),y[np.where(y==np.nan)[0]])
+        #nans = np.where(np.isnan(y))[0]
+        #print("len(np.where(np.isnan(y))[0]),y[np.where(np.isnan(y))[0]]:")
+        #print(len(nans),y[nans])
+        #print("len(np.where(~np.isnan(y))[0]),y[np.where(~np.isnan(y))[0]]:")
+        #print(len(np.where(~np.isnan(y))[0]),y[~nans])
+        nans = np.where(~np.isfinite(y))[0]
+        y[nans] = np.nan
+        #print("len(np.where(~np.isfinite(y))[0]),y[np.where(~np.isfinite(y))[0]]:")
+        #print(len(nans),y[nans])
+        #print(len(np.where(~np.isnan(y))[0]),y[~nans])
+        data[nans,i] = np.interp(x[nans],x[~nans],y[~nans])
+        #new_nans = np.where(~np.isfinite(data[:,i]))[0]
+        #print("New nans len, new nans:")
+        #print(len(new_nans),data[new_nans,i])
+    return data
+    
+def getStateBoundaries(state='California',filename='../data-sample/states.xml'):
+    if state == 'All':
+        all_states = True
+        all_pts = dict()
+    else:
+        all_states = False
+    tree = ET.parse(filename)
+    root = tree.getroot()
+    for actor in root.findall('state'):
+        if actor.attrib['name'] == state or all_states:   
+            pts = []             
+            for point in actor.findall('point'):
+                pts.append([float(point.attrib['lat']),float(point.attrib['lng'])])
+            pts = np.array(pts,dtype=np.float32)
+            if all_states:
+                state_name = actor.attrib['name']
+                all_pts[state_name] = pts
+    if all_states:
+        return all_pts
+    else:
+        return pts
+
 if __name__ == "__main__":
 
-    if True: #'stations' not in locals():
+    if False:
         #datadir='../data-test/asos/asos-fivemin/6401-2016/'
-        datadir='../data-test/asos/asos-fivemin/smallset/'
+        #datadir='../data-test/asos/asos-fivemin/smallset/'
         #datadir='../data-test/asos/asos-fivemin/breaks/'
-        stations = readStationsFromText(datadir=datadir)
-        
-        #stations = readStationsFromText()
+        #stations = readStationsFromText(datadir=datadir)
+        stations = readStationsFromText()
+    else:
+        stations = readPickleStations()
     
     for key in stations:
         stations[key].sortMeasurements()
+    computeStationsMemory(stations)
     
     geoLimits = findGeoLimits(stations)
+    cali_pts = getStateBoundaries()
     
     # 1 degree is approximately 69 miles, or 111 km
     # Modis resolution is approximately 1km, so we need 111 pixels per degree
@@ -647,16 +746,14 @@ if __name__ == "__main__":
     latGrid = np.linspace(geoLimits[0]-1,geoLimits[1]+1,int((geoLimits[1]-geoLimits[0]+2)*resolution+1))
     lonGrid = np.linspace(geoLimits[2]-1,geoLimits[3]+1,int((geoLimits[3]-geoLimits[2]+2)*resolution+1))
     
-    queryDateTime = dt.datetime(year=2007,month=6,day=15,hour=5,minute=53)
+    queryDateTime = dt.datetime(year=2016,month=6,day=17,hour=5,minute=53)
     timeRange = dt.timedelta(days=0,hours=0,minutes=30)
-    dataNp = stations['AAT'].timeAverage(timeRange)
-    deltat = 1
-    maxt = np.floor(np.max(dataNp[:,0]))
-    mint = np.min(dataNp[:,0])
-    t = np.linspace(mint,maxt,(maxt-mint)/deltat+1)
-    dataNpI = np.interp(t,dataNp[:,0],dataNp[:,3])
     
-    """
+    
+    #dataNp = stations['AAT'].timeAverage(timeRange)
+    
+    
+
     measurements = stationsGetMeasurements(stations,queryDateTime,timeRange)
     
 
@@ -664,17 +761,23 @@ if __name__ == "__main__":
     speedYcontour = griddata(measurements[:,0],measurements[:,1],measurements[:,3],latGrid,lonGrid,interp='linear')
     
     plt.figure(figsize=(12,8))
-    CS = plt.contourf(lonGrid,latGrid,speedXcontour.T)
-    plt.colorbar()
-    plt.xlim([-126,-114])
-    plt.ylim([32,42])
+    CS = plt.contourf(lonGrid,latGrid,speedXcontour.T,cmap='jet')
+    plt.colorbar(label='m/s')
+    plt.plot(cali_pts[:,1],cali_pts[:,0],'-k')
+    plt.xlim([-126,-113])
+    plt.ylim([32,43])
+    plt.xlabel('Longitude')
+    plt.ylabel('Latitude')
     
     plt.figure(figsize=(12,8))
-    CS = plt.contourf(lonGrid,latGrid,speedYcontour.T)
-    plt.colorbar()
-    plt.xlim([-126,-114])
-    plt.ylim([32,42])
-    """
+    CS = plt.contourf(lonGrid,latGrid,speedYcontour.T,cmap='jet')
+    plt.colorbar(label='m/s')
+    plt.plot(cali_pts[:,1],cali_pts[:,0],'-k')
+    plt.xlim([-126,-113])
+    plt.ylim([32,43])
+    plt.xlabel('Longitude')
+    plt.ylabel('Latitude')
+
 
     
     
