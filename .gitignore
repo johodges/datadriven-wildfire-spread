@@ -2,6 +2,7 @@
 Untitled.ipynb
 *.ipynb*/
 *.pyc
+*.pkl
 
 # Working directories
 Data/*
