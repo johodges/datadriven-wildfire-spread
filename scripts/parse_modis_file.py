@@ -321,40 +321,44 @@ if __name__ == '__main__':
     queryDateTime = dt.datetime(year=2016,month=6,day=27,hour=5,minute=53)
     
     # Find activefires at queryDateTime
-    fa_lat,fa_lon,fa_data = findQuerySdsData(queryDateTime,
-                                             tiles=tiles,
-                                             datadir="E:/WildfireResearch/data/aqua_daily_activefires/",
-                                             sdsname='FireMask',
-                                             composite=False)
+#    fa_lat,fa_lon,fa_data = findQuerySdsData(queryDateTime,
+#                                             tiles=tiles,
+#                                             datadir="E:/WildfireResearch/data/aqua_daily_activefires/",
+#                                             sdsname='FireMask',
+#                                             composite=False)
     
     # Find vegetation index at queryDateTime
-    vi_lat,vi_lon,vi_data = findQuerySdsData(queryDateTime,
-                                             tiles=tiles,
-                                             datadir="E:/WildfireResearch/data/aqua_vegetation/",
-                                             sdsname='1 km 16 days NDVI',
-                                             composite=True)
+#    vi_lat,vi_lon,vi_data = findQuerySdsData(queryDateTime,
+#                                             tiles=tiles,
+#                                             datadir="E:/WildfireResearch/data/aqua_vegetation/",
+#                                             sdsname='1 km 16 days NDVI',
+#                                             composite=True)
     # Find burned area at queryDateTime
-    ba_lat,ba_lon,ba_data = findQuerySdsData(queryDateTime,
-                                             tiles=tiles,
-                                             datadir="E:/WildfireResearch/data/modis_burnedarea/",
-                                             sdsname='burndate',
-                                             composite=True)
+#    ba_lat,ba_lon,ba_data = findQuerySdsData(queryDateTime,
+#                                             tiles=tiles,
+#                                             datadir="E:/WildfireResearch/data/modis_burnedarea/",
+#                                             sdsname='burndate',
+#                                             composite=True)
+
+    # Find elevation data
+    
+    
 
     # Plot all activefire tiles at the queryDateTime
-    if tiles is None:
-        states = 'All'
-    else:
-        states = 'California'
-    fig = plotContourWithStates(fa_lat,fa_lon,fa_data,states=states,clim=np.linspace(0,9,10),label='AF')
-    fig = plotContourWithStates(vi_lat,vi_lon,vi_data,states=states,label='VI')
-    fig = plotContourWithStates(ba_lat,ba_lon,ba_data,states=states,label='BA')
+#    if tiles is None:
+#        states = 'All'
+#    else:
+#        states = 'California'
+#    fig = plotContourWithStates(fa_lat,fa_lon,fa_data,states=states,clim=np.linspace(0,9,10),label='AF')
+#    fig = plotContourWithStates(vi_lat,vi_lon,vi_data,states=states,label='VI')
+#    fig = plotContourWithStates(ba_lat,ba_lon,ba_data,states=states,label='BA')
     
     # Print memory requirements for the queryDateTime
-    mem = (sys.getsizeof(fa_data)+sys.getsizeof(fa_lat)+sys.getsizeof(fa_lon))/1024**2
-    print("VI File Size: %.4f MB"%mem)
-    
-    mem = (sys.getsizeof(vi_data)+sys.getsizeof(vi_lat)+sys.getsizeof(vi_lon))/1024**2
-    print("VI File Size: %.4f MB"%mem)
+#    mem = (sys.getsizeof(fa_data)+sys.getsizeof(fa_lat)+sys.getsizeof(fa_lon))/1024**2
+#    print("VI File Size: %.4f MB"%mem)
+#    
+#    mem = (sys.getsizeof(vi_data)+sys.getsizeof(vi_lat)+sys.getsizeof(vi_lon))/1024**2
+#    print("VI File Size: %.4f MB"%mem)
     
     
     
