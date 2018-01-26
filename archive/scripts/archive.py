@@ -163,3 +163,85 @@ def findQueryVegetation(queryDateTime,
     return lat, lon, data
     
 """
+
+
+"""
+class ASOSMeasurement(object):
+    __slots__ = ['dateTime','temperatureC','relativeH','directionDeg','speedMps','gustMps']
+                 #'day','hour','minute','year','month']
+                 #'auto','sky_condition','weather_condition','temperature_dew','sm','directionDegVar','rvr',
+                 
+    def __init__(self,dateTime=None):
+        self.dateTime = dateTime
+        self.temperatureC = None
+        self.relativeH = None
+        self.directionDeg = None
+        self.speedMps = None
+        
+        self.gustMps = None
+        #self.day = None
+        #self.hour = None
+        #self.minute = None
+        #self.year = None
+        #self.month = None
+    
+    def computeMemory(self):
+        slots = self.__slots__
+        #slots = ['dateTime','temperatureC','relativeH','directionDeg','speedKnot','speedMps','gustKnot','gustMps',
+        #     'speedX','speedY','day','hour','minute','year','month',
+             #'auto','sky_condition','weather_condition','temperature_dew','sm','directionDegVar','rvr',
+        #     'speedMph','gustMph']
+        mem = 0
+        for key in slots:
+            mem = mem+sys.getsizeof(getattr(self,key))/1024**2
+        return mem
+    
+    def convertKnots(self,speedKnot):
+        if speedKnot is not None:
+            speedMps = speedKnot*0.514444
+        return speedMps
+        
+    def convertVector(self):
+        if self.directionDeg == -1:
+            speedX = self.speedMps*2**0.5
+            speedY = self.speedMps*2**0.5
+        elif self.directionDeg is None:
+            pass
+            #print("Wind direction was not set.")
+        elif self.speedMps is None:
+            pass
+            #print("Wind speed was not set.")
+        else:
+            try:
+                speedX = self.speedMps*np.sin(self.directionDeg/180*math.pi)
+                speedY = self.speedMps*np.cos(self.directionDeg/180*math.pi)
+            except:
+                assert False, "Unknown wind vector: %s Mps %s Deg" % (str(self.speedMps),str(self.directionDeg))
+        return speedX, speedY
+    
+    def __str__(self):
+        try:
+            string = "dateTime:\t\t%s\n"%self.dateTime
+        except:
+            pass
+        try:
+            string += "temperatureC:\t%.2f degC\n"%self.temperatureC
+        except:
+            pass
+        try:
+            string += "relativeH:\t\t%.2f \%\n"%self.relativeH
+        except:
+            pass
+        try:
+            string += "WindSpeed:\t\t\t%.2f m/s\n"%self.speedMps
+        except:
+            pass
+        try:
+            string += "WindDir:\t\t\t%.2f deg\n"%self.directionDeg
+        except:
+            pass
+        return string
+    
+    def __repr__(self):
+        return self.__str__()
+"""
