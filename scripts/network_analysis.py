@@ -751,25 +751,25 @@ def network_score_from_param_test(data,ns):
 if __name__ == "__main__":
   
     # Define which parametric study to load
-    study2use = 2
+    study2use = 0
     
     # Choose what networks to train
-    type_one = False
+    type_one = True
     type_two = True
     
     # Load parametric study information
-    in_params = yaml.load(open('default.yaml','r'))
+    in_params = yaml.load(open('../data-sample/default.yaml','r'))
     if study2use == 0:
         logname = 'network1'
-        input_file = 'network1'
+        input_file = '../data-sample/network1'
         plot_name = 'network1_'
     if study2use == 1:
         logname = 'network2'
-        input_file = 'network2'
+        input_file = '../data-sample/network2'
         plot_name = 'network2_'
     if study2use == 2:
         logname = 'network3'
-        input_file = 'network3'
+        input_file = '../data-sample/network3'
         plot_name = 'network3_'
         
     args = defaultdict(bool,in_params['args'])
