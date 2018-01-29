@@ -193,12 +193,20 @@ def buildContour(files,queryDateTime,sdsname='FireMask',composite=True):
         
         if not composite:
             day_index = activeFireDayIndex([startdate,enddate],queryDateTime)
-            data = loadSdsData(file,sdsname)[day_index,:,:]
+            data = loadSdsData(file,sdsname)
+            if day_index < data.shape[0]:
+                data = data[day_index,:,:]
+            else:
+                print("Required day index does not have data included.")
+                print("\tdata.shape:\t",data.shape)
+                print("\tday_index:\t",day_index)
+                data = None
         else:
             data = loadSdsData(file,sdsname)
         tile = extractTileFromFile(file)
         lat, lon = interpGPolygon(plat,plon,pixels=pixels)
-        tiles_data = uc.fillTileGrid(tiles_data,tiles_grid_dict,tile,data,pixels)
+        if data is not None:
+            tiles_data = uc.fillTileGrid(tiles_data,tiles_grid_dict,tile,data,pixels)
         tiles_lat = uc.fillTileGrid(tiles_lat,tiles_grid_dict,tile,lat,pixels)
         tiles_lon = uc.fillTileGrid(tiles_lon,tiles_grid_dict,tile,lon,pixels)
     #tiles_lat = uc.fillEmptyCoordinates(tiles_lat,tiles,pixels,coordinatesFromTile)
@@ -223,6 +231,41 @@ def findQuerySdsData(queryDateTime,
     
     return lat, lon, data
 
+def extractCandidates(lat,lon,data):
+    ''' This function extracts latitude and longitude corresponding to points
+    in the binary mask data.
+    '''
+    r,c = np.where(data > 0)
+    pts = []
+    for i in range(0,len(r)):
+        ptlat = lat[r[i],c[i]]
+        ptlon = lon[r[i],c[i]]
+        ptdat = data[r[i],c[i]]
+        pts.append([ptlat,ptlon,ptdat])
+    pts = np.array(pts)
+    return pts
+
+def compareCandidates(old_pts,new_pts,dist_thresh=0.5):
+    ''' This function compares two sets of points to return minimum distance
+    to a point in the new_pts set from an old_pt. dist_thresh is the minimum
+    distance away for two points to be considered a match in degrees.
+    NOTE: 1 degree is approximately 69 miles, or 111 km
+    NOTE: Modis resolution is approximately 1km    
+    '''
+    
+    matched_pts = []
+    if old_pts.shape[0] != 0 and new_pts.shape[0] != 0:
+        for i in range(0,old_pts.shape[0]):
+            squared = np.power(new_pts[:,0:2]-old_pts[i,0:2],2)
+            summed = np.sum(squared,axis=1)
+            rooted = np.power(summed,0.5)
+            min_dist = np.min(rooted)
+            if min_dist <= dist_thresh:
+                matched_pts.append([i,min_dist*111,np.argmin(rooted)])
+                
+    matched_pts = np.array(matched_pts)
+    return matched_pts
+
 if __name__ == '__main__':
     ''' case 0: loads modis vegetation index at queryDateTime and plots for
                 the whole United states
@@ -234,7 +277,7 @@ if __name__ == '__main__':
     
     # User inputs
     queryDateTime = dt.datetime(year=2016,month=6,day=27,hour=5,minute=53)
-    case = 1
+    case = 3
     
     if case == 0:
         tiles = None
@@ -289,6 +332,40 @@ if __name__ == '__main__':
         total_mem = vi_mem+af_mem+ba_mem
         
         print("VI, AF, BA, Total File Size: %.4f,%.4f,%.4f,%.4f MB"%(vi_mem,af_mem,ba_mem,total_mem))
-
+        
+    if case == 3:
+        tiles = ['h08v04','h08v05','h09v04']
+        states = 'California'
+        # Find activefires at queryDateTime
+        queryDateTime = dt.datetime(year=2016,month=1,day=1,hour=12,minute=0)
+        outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/AF_images/'
+        for i in range(0,365):
+            af_name = outdir+'AF2_'+queryDateTime.isoformat()[0:13]+'.png'
+        
+            af_lat,af_lon,af_data = findQuerySdsData(queryDateTime,tiles=tiles,composite=False,
+                                                     datadir="E:/WildfireResearch/data/terra_daily_activefires/",
+                                                     sdsname='FireMask')
+            if af_data is not None:
+                af_fig = uc.plotContourWithStates(af_lat,af_lon,af_data,states=states,
+                                                  clim=np.linspace(0,9,10),label='AF',
+                                                  saveFig=True,saveName=af_name)
+            
+                af_mem = (sys.getsizeof(af_data)+sys.getsizeof(af_lat)+sys.getsizeof(af_lon))/1024**2
+                
+                data_mask = af_data.copy()
+                data_mask[data_mask < 7] = 0
+                pts = extractCandidates(af_lat,af_lon,data_mask)
+                if i > 0:
+                    match_pts = compareCandidates(old_pts,pts)
+                    if match_pts.shape[0] > 0:
+                        print("Time %s found %.0f matches with the closest %.4f km."%(queryDateTime.isoformat(),match_pts.shape[0],np.min(match_pts[:,1])))
+                else:
+                    pass
+                queryDateTime = queryDateTime + dt.timedelta(days=1)
+                old_pts = pts
+            else:
+                old_pts = np.array([])
+        #print(match_pts)
+        print("AF File Size: %.4f MB"%(af_mem))
     
     

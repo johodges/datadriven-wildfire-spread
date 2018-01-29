@@ -81,6 +81,7 @@ def getStateBoundaries(state='California',filename='../data-sample/states.xml'):
     
 def plotContourWithStates(lat,lon,data,
                           states=None,clim=None,xlim=None,ylim=None,
+                          saveFig=False,saveName='',
                           label=''):
     ''' This function will plot a contour map using latitude, longitude, and
     data matricies. State boundary lines will be overlaid on the contour.
@@ -92,7 +93,13 @@ def plotContourWithStates(lat,lon,data,
     elif type(states) is str:
         states=getStateBoundaries(state=states)
     
-    fig = plt.figure(figsize=(12,8))
+    if saveFig:
+        fig = plt.figure(figsize=(96,64))
+        fntsize = 160
+    else:
+        fig = plt.figure(figsize=(12,8))
+        fntsize = 20
+    
     if type(data) is list:
         for i in range(0,len(data)):
             da = data[i]
@@ -113,8 +120,8 @@ def plotContourWithStates(lat,lon,data,
     else:
         plt.colorbar(label=label,ticks=clim)
     
-    plt.xlabel('Longitude')
-    plt.ylabel('Latitude')
+    plt.xlabel('Longitude',fontsize=fntsize)
+    plt.ylabel('Latitude',fontsize=fntsize)
     
     if type(states) is dict:
         for state in states:
@@ -131,6 +138,18 @@ def plotContourWithStates(lat,lon,data,
             ylim = [32,43]
     plt.xlim(xlim)
     plt.ylim(ylim)
+    
+    if saveFig:
+        
+        for tick in fig.xaxis.get_major_ticks():
+            tick.label.set_fontsize(fntsize)
+        for tick in fig.yaxis.get_major_ticks():
+            tick.label.set_fontsize(fntsize)
+        
+        fig.savefig(saveName)
+        plt.clf()
+        plt.close(fig)
+    
     return fig
 
 def daysInYear(year):
