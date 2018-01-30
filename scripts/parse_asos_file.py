@@ -8,7 +8,6 @@ Created on Wed Dec 27 16:05:51 2017
 import numpy as np
 import datetime as dt
 import math
-import matplotlib.pyplot as plt
 from matplotlib.mlab import griddata
 import glob
 import pickle

@@ -11,6 +11,7 @@ import numpy as np
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
 import scipy.interpolate as scpi
+from matplotlib.colors import LinearSegmentedColormap
 
 def tic():
     return time.time()
@@ -82,7 +83,7 @@ def getStateBoundaries(state='California',filename='../data-sample/states.xml'):
 def plotContourWithStates(lat,lon,data,
                           states=None,clim=None,xlim=None,ylim=None,
                           saveFig=False,saveName='',
-                          label=''):
+                          label='',cmap='jet'):
     ''' This function will plot a contour map using latitude, longitude, and
     data matricies. State boundary lines will be overlaid on the contour.
     If a list of matrices are passed instead, each contour in the list will
@@ -93,12 +94,21 @@ def plotContourWithStates(lat,lon,data,
     elif type(states) is str:
         states=getStateBoundaries(state=states)
     
+    if cmap == 'satComp':
+        colors = [(1, 1, 1), (0, 0, 1), (1, 0, 0)] 
+        cmap = LinearSegmentedColormap.from_list('satComp', colors, N=3)
+    
     if saveFig:
-        fig = plt.figure(figsize=(96,64))
-        fntsize = 160
+        fntsize = 80
+        lnwidth = 10
+        fig = plt.figure(figsize=(48,32),tight_layout=True)
+        #fig = plt.figure(figsize=(12,8),tight_layout=True)
+
     else:
-        fig = plt.figure(figsize=(12,8))
+        fig = plt.figure(figsize=(12,8),tight_layout=True)
         fntsize = 20
+        lnwidth = 2
+    ax1 = fig.add_subplot(1,1,1)
     
     if type(data) is list:
         for i in range(0,len(data)):
@@ -106,47 +116,50 @@ def plotContourWithStates(lat,lon,data,
             la = lat[i]
             lo = lon[i]
             if clim is None:
-                plt.contourf(lo,la,da,cmap='jet')
+                ax1.contourf(lo,la,da,cmap=cmap)
             else:
-                plt.contourf(lo,la,da,clim,cmap='jet')
+                ax1.contourf(lo,la,da,clim,cmap=cmap)
     else:
         if clim is None:
-            plt.contourf(lon,lat,data,cmap='jet')
+            img = ax1.contourf(lon,lat,data,cmap=cmap)
         else:
-            plt.contourf(lon,lat,data,clim,cmap='jet')
+            img = ax1.contourf(lon,lat,data,clim,cmap=cmap)
     
     if clim is None:
-        plt.colorbar(label=label)
+        img_cb = fig.colorbar(img,label=label)
     else:
-        plt.colorbar(label=label,ticks=clim)
+        img_cb = fig.colorbar(img,label=label,ticks=clim)
+    
+    img_cb.set_label(label=label,fontsize=fntsize)
     
     plt.xlabel('Longitude',fontsize=fntsize)
     plt.ylabel('Latitude',fontsize=fntsize)
     
     if type(states) is dict:
         for state in states:
-            plt.plot(states[state][:,1],states[state][:,0],'-k')
+            ax1.plot(states[state][:,1],states[state][:,0],'-k')
         if xlim is None:
-            xlim = [-128,-66]
+            xlim = [-125,-66]
         if ylim is None:
             ylim = [24,50]
     else:
-        plt.plot(states[:,1],states[:,0],'-k')
+        ax1.plot(states[:,1],states[:,0],'-k')
         if xlim is None:
-            xlim = [-126,-113]
+            xlim = [-125,-113]
         if ylim is None:
             ylim = [32,43]
     plt.xlim(xlim)
     plt.ylim(ylim)
     
     if saveFig:
-        
-        for tick in fig.xaxis.get_major_ticks():
-            tick.label.set_fontsize(fntsize)
-        for tick in fig.yaxis.get_major_ticks():
-            tick.label.set_fontsize(fntsize)
+        img_cb.ax.tick_params(axis='both',labelsize=fntsize)
+        ax1.tick_params(axis='both',labelsize=fntsize)
+        ax1.grid(linewidth=lnwidth/4,linestyle='-.',color='k')
+        for ln in ax1.lines:
+            ln.set_linewidth(lnwidth)
         
         fig.savefig(saveName)
+        
         plt.clf()
         plt.close(fig)
     
