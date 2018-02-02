@@ -12,6 +12,9 @@ import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
 import scipy.interpolate as scpi
 from matplotlib.colors import LinearSegmentedColormap
+import imageio
+import glob
+import psutil
 
 def tic():
     return time.time()
@@ -203,6 +206,25 @@ def fillEmptyCoordinatesRectilinear(data):
     else:
         assert False, "Did not find a valid region."
     return dataNan
+
+def makeGIF(indir,outfile,ext='.png',fps=None):
+    if indir[-1] == '/':
+        files = glob.glob(indir+'*'+ext)
+    else:
+        files = glob.glob(indir+'/*'+ext)
+    if len(files) > 0:
+        if fps is None:
+            writer = imageio.get_writer(outfile)
+        else:
+            writer = imageio.get_writer(outfile,fps=fps)
+        for file in files:
+            mem = psutil.virtual_memory()[2]
+            if mem < 90.0:
+                print(file)
+                writer.append_data(imageio.imread(file))
+            else:
+                print("Memory full.")
+        writer.close()
 
 """
 def fillEmptyCoordinates(data,tiles,pixels,coordFromNameFnc):
