@@ -250,7 +250,12 @@ def defineStations(filename):
             UTC = float(line[172:177].strip())
             STNTYPE = line[178:-1].strip()
             
-            if CALL not in stations and ST == 'CA':
+            if ST == 'CA' or ST == 'AZ' or ST == 'OR' or ST == 'NV':
+                stCheck = True
+            else:
+                stCheck = False
+            
+            if CALL not in stations and stCheck:
                 stations[CALL] = ASOSStation([NCDCID,WBAN,COOPID,CALL,NAME,ANAME,COUNTRY,ST,COUNTY,LAT,LON,ELEV,UTC,STNTYPE])
             #if CALL in stations:
             #    stations[CALL].addTime(splitLine)
@@ -446,14 +451,19 @@ def parseMETARfile(file):
     return datas, dateTimes
 
 def readStationsFromText(filename='../data-test/asos-stations.txt',
-                         datadir='E:/WildfireResearch/data/asos-fivemin/6401-2016/',
+                         datadirs=['E:/WildfireResearch/data/asos-fivemin/6401-2016/'],
                          timeRange = dt.timedelta(days=0,hours=0,minutes=30)):
     stations = defineStations(filename)
     empty_stations = []
     totalMem = 0
-    for key in stations.keys():
+    keys = list(stations.keys())
+    for i in range(0,len(keys)):#key in stations.keys():
+        key = keys[i]
         call = stations[key].call
-        files = glob.glob(datadir+'*'+call+'*')
+        files = []
+        for datadir in datadirs:
+            fs = glob.glob(datadir+'*'+call+'*')
+            files.extend(fs)
         if len(files) != 0:# and key == 'WVI':
             for file in files:
                 data, dateTime = parseMETARfile(file)
@@ -469,6 +479,7 @@ def readStationsFromText(filename='../data-test/asos-stations.txt',
         else:
             empty_stations.append(key)  
             print("%s was empty."%(key))
+        print("Percent complete: %.4f"%((i+1)/len(keys)))
     for key in empty_stations:
         stations.pop(key,None)
         
@@ -545,13 +556,14 @@ if __name__ == "__main__":
     '''
     case = 2
     filename = '../data-test/asos-stations.txt'
-    datadir='E:/WildfireResearch/data/asos-fivemin/6401-2016/'
+    datadirs=['E:/WildfireResearch/data/asos-fivemin/6401-2016/',
+              'E:/WildfireResearch/data/asos-fivemin/6401-2017/']
     resolution = 111 # pixels per degree
     queryDateTime = dt.datetime(year=2016,month=6,day=17,hour=5,minute=53)
     timeRange = dt.timedelta(days=0,hours=0,minutes=30)
     
     if case == 0:
-        stations = readStationsFromText(filename=filename,datadir=datadir)
+        stations = readStationsFromText(filename=filename,datadirs=datadirs)
         dumpPickleStations(stations,filename=filename[0:-4]+'.pkl')
         #computeStationsMemory(stations)
         lat, lon = buildCoordinateGrid(stations,resolution=resolution)
