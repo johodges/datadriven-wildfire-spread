@@ -349,19 +349,22 @@ def gridFromCustomHdf(file,sdsname):
 
 """
 
-def extractCandidates(lat,lon,data):
+def geolocateCandidates(lat,lon,data):
     ''' This function extracts latitude and longitude corresponding to points
     in the binary mask data.
     '''
     r,c = np.where(data > 0)
     pts = []
+    coords = []
     for i in range(0,len(r)):
         ptlat = lat[r[i],c[i]]
         ptlon = lon[r[i],c[i]]
         ptdat = data[r[i],c[i]]
         pts.append([ptlat,ptlon,ptdat])
+        coords.append([r[i],c[i]])
+    coords = np.array(np.squeeze(coords),dtype=np.int)
     pts = np.array(pts)
-    return pts
+    return pts, coords
 
 def compareCandidates(old_pts,new_pts,dist_thresh=0.5):
     ''' This function compares two sets of points to return minimum distance
@@ -472,7 +475,7 @@ if __name__ == '__main__':
                 
                 data_mask = af_data.copy()
                 data_mask[data_mask < 7] = 0
-                pts = extractCandidates(af_lat,af_lon,data_mask)
+                pts = geolocateCandidates(af_lat,af_lon,data_mask)
                 if i > 0:
                     match_pts = compareCandidates(old_pts,pts)
                     if match_pts.shape[0] > 0:

@@ -20,18 +20,13 @@ import datetime as dt
 class MODISHourlyMeasurement(object):
     __slots__ = ['time','latitude','longitude','data','name','file']
     
-    def __init__(self,dtime,lat,lon,data,name,day=True):
+    def __init__(self,dtime,lat,lon,data,name,file):
         self.time = dtime
         self.latitude = lat
         self.longitude = lon
         self.data = data
         self.name = name
-        namesplit = name[0].split('MOD14.A')[1].split('.')
-        if day:
-            daystr = '.dddd.'
-        else:
-            daystr = '.nnnn.'
-        self.file = 'MOD14JH.A'+namesplit[0]+daystr+namesplit[2]+time.strftime('%Y%j.%H%M',time.gmtime(time.time()))+'.hdf'
+        self.file = file
 
 def generateEnvironment(data_dir="/C/Users/JHodges/My\ Documents/wildfire-research/tools/MRTSwath_download_Win/MRTSwath/data",
                         home_dir="/C/Users/JHodges/My\ Documents/wildfire-research/tools/MRTSwath_download_Win/MRTSwath"):
@@ -142,12 +137,15 @@ def gridAndResample(data,
     newpts = np.zeros((len(lat_lnsp2),2))
     newpts[:,0] = lat_lnsp2
     newpts[:,1] = lon_lnsp2
-    data_lnsp = scpi.griddata(pts[0::ds],data.data[0::ds],newpts,method=method)
-    data_grid = np.reshape(data_lnsp,(lat_grid.shape[0],lat_grid.shape[1]))
-    
-    data.latitude = lat_lnsp.copy()
-    data.longitude = lon_lnsp.copy()
-    data.data = data_grid.copy()
+    if len(data.data) > 0:
+        data_lnsp = scpi.griddata(pts[0::ds],data.data[0::ds],newpts,method=method)
+        data_grid = np.reshape(data_lnsp,(lat_grid.shape[0],lat_grid.shape[1]))
+        
+        data.latitude = lat_lnsp.copy()
+        data.longitude = lon_lnsp.copy()
+        data.data = data_grid.copy()
+    else:
+        return None
     
     return data
     
@@ -179,7 +177,8 @@ def generateCustomHdf(data,outdir,sdsname,
 
 def matchFilesToGeo(indir="E:/WildfireResearch/data/terra_hourly_activefires/",
                     geodir = "E:/WildfireResearch/data/terra_geolocation/",
-                    outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/"):
+                    outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/",
+                    splitStr = '\\MOD14.A'):
     files = glob.glob(indir+'/*.hdf')
     geo_files = glob.glob(geodir+'/*.hdf')
     res_files = glob.glob(outdir+'/*.hdf')
@@ -188,7 +187,7 @@ def matchFilesToGeo(indir="E:/WildfireResearch/data/terra_hourly_activefires/",
     geoFiles = []
     dates = []
     for i in range(0,len(files)):
-        dtstr = files[i].split('\\MOD14.A')[1][0:12]
+        dtstr = files[i].split(splitStr)[1][0:12]
         matched_file = [s for s in geo_files if dtstr in s]
         res_match = [s for s in res_files if dtstr[0:7] in s]
         if len(matched_file) > 0 and len(res_match) == 0:
@@ -208,7 +207,8 @@ def matchFilesToGeo(indir="E:/WildfireResearch/data/terra_hourly_activefires/",
 def splitDayAndNight(lats,lons,datas,names,times,
                      timezone=0,
                      dayLowThresh=1.0,
-                     dayUpThresh=13.0):
+                     dayUpThresh=13.0,
+                     fileName=None):
     localHour = np.array([time.localtime(s+timezone*3600).tm_hour for s in times])
     
     inds = np.where((localHour<dayUpThresh) & (localHour>dayLowThresh))
@@ -218,22 +218,29 @@ def splitDayAndNight(lats,lons,datas,names,times,
     datas = np.array(datas)
     names = np.array(names)
     
+    if fileName is not None:
+        dfileName = fileName.split('.xxxx.')[0]+'.dddd.'+fileName.split('.xxxx.')[1]
+        nfileName = fileName.split('.xxxx.')[0]+'.nnnn.'+fileName.split('.xxxx.')[1]
+        
     day = MODISHourlyMeasurement(
             times[inds].copy(),lats[inds].copy(),lons[inds].copy(),
-            datas[inds].copy(),names.copy(),day=True)
+            datas[inds].copy(),names.copy(),dfileName)
     inds = np.where((localHour>=dayUpThresh) | (localHour<=dayLowThresh))
     night = MODISHourlyMeasurement(
             times[inds].copy(),lats[inds].copy(),lons[inds].copy(),
-            datas[inds].copy(),names.copy(),day=False)    
+            datas[inds].copy(),names.copy(),nfileName)    
     return day, night
 
 def remapUsingCustom(indir="E:/WildfireResearch/data/terra_hourly_activefires/",
                      geodir = "E:/WildfireResearch/data/terra_geolocation/",
                      outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/",
                      sdsname_in='fire mask',
-                     sdsname_out='FireMask'):
+                     sdsname_out='FireMask',
+                     splitStr = 'MOD14.A',
+                     dayLowThresh=1.0,
+                     dayUpThresh=13.0):
 
-    inputFiles, geoFiles, dates = matchFilesToGeo(indir=indir,geodir=geodir,outdir=outdir)
+    inputFiles, geoFiles, dates = matchFilesToGeo(indir=indir,geodir=geodir,outdir=outdir,splitStr=splitStr)
     
     for i in range(1,len(dates)):
         files = [s for s in inputFiles if 'A'+dates[i] in s]
@@ -260,18 +267,31 @@ def remapUsingCustom(indir="E:/WildfireResearch/data/terra_hourly_activefires/",
             lons.extend(lon_rs)
             times.extend(np.zeros((len(data_rs),))+dateTime)
             names.append(file)
-    
-        day, night = splitDayAndNight(lats,lons,datas,names,times,timezone=0)
+            
+        name = files[0].split(splitStr)[1].split('.')
+        fileName = splitStr.split('.')[0]+'JH.'+splitStr.split('.')[1]+'.'+name[0]+'.xxxx.'+name[2]+time.strftime('%Y%j.%H%M',time.gmtime(time.time()))+'.hdf'
+        
+        day, night = splitDayAndNight(lats,lons,datas,names,times,
+                                      dayLowThresh=dayLowThresh,
+                                      dayUpThresh=dayUpThresh,
+                                      fileName=fileName,
+                                      timezone=0)
         
         day = gridAndResample(day)
         night = gridAndResample(night)
         
-        generateCustomHdf(day,outdir,'FireMask',
-                          sdsdescription='Active fires/thermal anomalies mask',
-                          sdsunits='none')
-        generateCustomHdf(night,outdir,'FireMask',
-                          sdsdescription='Active fires/thermal anomalies mask',
-                          sdsunits='none')
+        if day is not None and night is not None:
+            generateCustomHdf(day,outdir,'FireMask',
+                              sdsdescription='Active fires/thermal anomalies mask',
+                              sdsunits='none')
+            generateCustomHdf(night,outdir,'FireMask',
+                              sdsdescription='Active fires/thermal anomalies mask',
+                              sdsunits='none')
+        else:
+            if day is None:
+                print("Unable to find daytime measurements.")
+            if night is None:
+                print("Unable to find nighttime measurements.")
         print("Percent Complete: %.4f"%((i+1)/len(dates)))
     return day, night
 
@@ -287,13 +307,17 @@ def loadCustomHdf(file,sdsname):
     lon_lnsp = np.linspace(longitudeL,longitudeR,data.shape[1])
     
     lon_grid, lat_grid = np.meshgrid(lon_lnsp,lat_lnsp)
+    timeStamp = (float(f.attributes()['minTimeStamp'])+float(f.attributes()['maxTimeStamp']))/2
     
-    return lat_grid, lon_grid, data
+    return lat_grid, lon_grid, data, timeStamp
 
 def getTimeCustomHdf(file,timezone=0,dayLowThresh=1.0,dayUpThresh=13.0):
     f = phdf.SD(file,phdf.SDC.READ)
-    startTime = float(f.attributes()['minTimeStamp']) +timezone*3600
-    endTime = float(f.attributes()['maxTimeStamp']) +timezone*3600
+    try:
+        startTime = float(f.attributes()['minTimeStamp']) +timezone*3600
+        endTime = float(f.attributes()['maxTimeStamp']) +timezone*3600
+    except KeyError:
+        return None, None
     
     avgTime_t = (startTime+endTime)/2
     avgTime = time.localtime(avgTime_t)
@@ -328,12 +352,13 @@ def queryTimeCustomHdf2(indir,qDT):
     #files = [files[0],files[1],files[2],files[3],files[4],files[5]]
     for file in files:
         startTime, endTime = getTimeCustomHdf(file)
-        times.append([startTime, endTime])
+        if startTime is not None and endTime is not None:
+            times.append([startTime, endTime])
     times = np.array(times)
     
     return times, queryTime
 
-def queryTimeCustomHdf(qDT,
+def queryTimeCustomHdfbkup(qDT,
                        datadir="E:/WildfireResearch/data/terra_hourly_activefires_jh/",
                        sdsname='FireMask',
                        timezone=0):
@@ -348,16 +373,56 @@ def queryTimeCustomHdf(qDT,
     lat, lon, data = loadCustomHdf(file,sdsname)
     return lat, lon, data
     
+def queryTimeCustomHdf(qDT,
+                       datadirs="E:/WildfireResearch/data/terra_hourly_activefires_jh/",
+                       sdsname='FireMask',
+                       timezone=0):
+    queryTime = time.mktime(qDT.timetuple())+qDT.microsecond / 1E6
+    
+    if type(datadirs) is str:
+        datadirs = [datadirs]
+        dataType = 'str'
+    elif type(datadirs) is list:
+        dataType = 'list'
+    
+    lat = []
+    lon = []
+    data = []
+    timeStamp = []
+    for datadir in datadirs:
+        files, times = loadTimeFileCustomHdf(datadir)
+        if files is None:
+            _, outfile = updateTimeFileCustomHdf(indir,timezone=timezone)
+            files, times = loadTimeFileCustomHdf(outfile)
+        ind = np.where(((times-queryTime)[:,0] < 0) & ((times-queryTime)[:,1] > 0))[0]
+        if len(ind) > 0:
+            file = files[ind[0]]
+            lat2, lon2, data2, timeStamp2 = loadCustomHdf(file,sdsname)
+            lat.append(lat2)
+            lon.append(lon2)
+            data.append(data2)
+            timeStamp.append(timeStamp2)
+            
+    if dataType == 'str':
+        lat = lat[0]
+        lon = lon[0]
+        data = data[0]
+        timeStamp = timeStamp[0]
+        
+    return lat, lon, data, timeStamp
 
 def updateTimeFileCustomHdf(indir,timezone=0):
     files = glob.glob(indir+'/*.hdf')
     times = []
+    files2 = []
     for file in files:
         startTime, endTime = getTimeCustomHdf(file,timezone=0)
-        times.append([startTime, endTime])
+        if startTime is not None and endTime is not None:
+            times.append([startTime, endTime])
+            files2.append(file)
     times = np.array(times)
     outfile = indir+'fileTimeList.pkl'
-    uc.dumpPickle([files,times],outfile)
+    uc.dumpPickle([files2,times],outfile)
     return times, outfile
 
 def loadTimeFileCustomHdf(indir):
@@ -377,17 +442,35 @@ def loadTimeFileCustomHdf(indir):
     return files, times
 
 if __name__ == "__main__":
-    indir="E:/WildfireResearch/data/terra_hourly_activefires/"
-    geodir = "E:/WildfireResearch/data/terra_geolocation/"
-    #outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/"
-    outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh2/"
-
-    case = 2
+    
+    satellite = 'terra'
+    case = 0
+    
+    if satellite == 'terra':
+        indir="E:/WildfireResearch/data/terra_hourly_activefires/"
+        geodir = "E:/WildfireResearch/data/terra_geolocation/"
+        #outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/"
+        outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/"
+        dayLowThresh = 1.0
+        dayUpThresh = 13.0
+        splitStr = 'MOD14.A'
+    elif satellite == 'aqua':
+        indir="E:/WildfireResearch/data/aqua_hourly_activefires/"
+        geodir = "E:/WildfireResearch/data/aqua_geolocation/"
+        #outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/"
+        outdir = "E:/WildfireResearch/data/aqua_hourly_activefires_jh/"
+        dayLowThresh = 4.0
+        dayUpThresh = 16.0
+        splitStr = 'MYD14.A'
+    
     
     if case == 0:
         day, night = remapUsingCustom(indir=indir,geodir=geodir,outdir=outdir,
                                       sdsname_in='fire mask',
-                                      sdsname_out='FireMask')
+                                      sdsname_out='FireMask',
+                                      dayLowThresh=dayLowThresh,
+                                      dayUpThresh=dayUpThresh,
+                                      splitStr=splitStr)
         
         plt.figure(1)
         fig1 = uc.plotContourWithStates(day.latitude,day.longitude,day.data,
@@ -465,8 +548,8 @@ if __name__ == "__main__":
     elif case == 7:
         files = glob.glob(outdir+'/*.hdf')
         timezone = 0
-        dayLowThresh = 1
-        dayUpThresh = 13
+        dayLowThresh = 1 # Terra California
+        dayUpThresh = 13 # Terra California
         for i in range(2,4):#len(files)):
             file = files[i]
             f = phdf.SD(file,phdf.SDC.READ)
