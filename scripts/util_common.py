@@ -17,23 +17,36 @@ import glob
 import psutil
 
 def tic():
+    ''' This function returns the current time.
+    '''
     return time.time()
 
 def toc(tim):
+    ''' This function prints the time since the input time and returns the
+    current time.
+    '''
     tom = time.time()
     print("%.4f sec Elapsed"%(tom-tim))
     return tom
 
 def dumpPickle(data,filename):
+    ''' This function will dump data to filename for future reuse.
+    '''
     with open(filename,'wb') as f:
         pickle.dump(data,f)
         
 def readPickle(filename):
+    ''' This function will read data from filename and return it
+    '''
     with open(filename,'rb') as f:
         data = pickle.load(f)
     return data
 
 def mapTileGrid(tiles,pixels,coordFromNameFnc):
+    ''' This function will create a larger matrix which encompasses multiple
+    MODIS Level 3 tiles. Returns a dictionary with key = tile name and value =
+    grid coordinates in larger matrix and the larger grid.
+    '''
     h_min = 361
     h_max = -361
     v_min = 361
@@ -52,6 +65,11 @@ def mapTileGrid(tiles,pixels,coordFromNameFnc):
     return tiles_grid_dict, tiles_grid
 
 def fillTileGrid(tile_grid,tile_grid_dict,tile,data,pixels):
+    ''' This function will fill measurements associated with a single MODIS
+    Level 3 tile into a previously generated larger tile grid encompassing
+    multiple tiles.
+    '''
+    
     h,v = tile_grid_dict[tile]
     start_h = (h*pixels)
     end_h = ((h+1)*pixels)
@@ -62,6 +80,10 @@ def fillTileGrid(tile_grid,tile_grid_dict,tile,data,pixels):
     return tile_grid
 
 def getStateBoundaries(state='California',filename='../data-sample/states.xml'):
+    ''' This function will load the latitude/longitude boundaries of USA
+    states from an xml file. the xml file used here was taken from:
+        http://econym.org.uk/gmap/states.xml
+    '''
     if state == 'All':
         all_states = True
         all_pts = dict()
@@ -185,6 +207,9 @@ def daysInYear(year):
     return days
 
 def fillEmptyCoordinatesRectilinear(data):
+    ''' This function will fill empty values in a rectilinear grid with only
+    the corners defined.
+    '''
     [r,c] = data.shape
     dataNan = data.copy()
     dataNan[data == 0] = np.nan
@@ -208,6 +233,15 @@ def fillEmptyCoordinatesRectilinear(data):
     return dataNan
 
 def makeGIF(indir,outfile,ext='.png',fps=None):
+    ''' This function will take all files with extension ext from an input
+    director indir and create a video file named outfile.
+    
+    NOTE: If outfile ends in (.gif) the file will be a gif, if it ends in
+        (.mp4) the file will be an mp4.
+    NOTE: (.mp4) is preferred to reduce file size.
+    NOTE: Specifying a custom fps with (.mp4) will cause issues in some media
+        players.
+    '''
     if indir[-1] == '/':
         files = glob.glob(indir+'*'+ext)
     else:
@@ -226,89 +260,3 @@ def makeGIF(indir,outfile,ext='.png',fps=None):
                 print("Memory full.")
         writer.close()
 
-"""
-def fillEmptyCoordinates(data,tiles,pixels,coordFromNameFnc):
-    tiles_grid_dict, tiles_grid = mapTileGrid(tiles,pixels,coordFromNameFnc)
-    [r,c] = data.shape
-    print(data.shape)
-    rtiles = int(r/pixels)
-    ctiles = int(c/pixels)
-    bt_r, bt_c = tiles_grid_dict[tiles[0]]
-    print(bt_r,bt_c)
-    bg_ls_y = np.linspace(bt_r*pixels,(bt_r+1)*pixels,pixels)
-    bg_ls_x = np.linspace(bt_c*pixels,(bt_c+1)*pixels,pixels)
-    bg_x, bg_y = np.meshgrid(bg_ls_y,bg_ls_x)
-    print(bg_x.shape,bg_y.shape)
-    bg_x = np.reshape(bg_x,(pixels*pixels,))
-    bg_y = np.reshape(bg_y,(pixels*pixels,))
-    print(bg_x.shape,bg_y.shape)
-    print(bt_r*pixels,(bt_r+1)*pixels,bt_c*pixels,(bt_c+1)*pixels)
-    bg_d = data[bt_r*pixels:(bt_r+1)*pixels,bt_c*pixels:(bt_c+1)*pixels]
-    print(bg_d.shape)
-    bd = np.reshape(bg_d,(pixels*pixels,))
-    print(bd.shape)
-    
-    for i in range(0,rtiles):
-        for j in range(0,ctiles):
-            start_c = (j*pixels)
-            end_c = ((j+1)*pixels)
-            start_r = (i*pixels)
-            end_r = ((i+1)*pixels)
-            (start_c,end_c,start_r,end_r) = (int(start_c),int(end_c),int(start_r),int(end_r))
-            if np.sum(data[start_r:end_r,start_c:end_c]) == 0:
-                grid_x, grid_y = np.meshgrid(np.linspace(start_r,end_r,pixels),np.linspace(start_c,end_c,pixels))
-                grid_rs_x = np.reshape(grid_x,(pixels*pixels,))-bg_x
-                grid_rs_y = np.reshape(grid_y,(pixels*pixels,))-bg_y
-                interp = scpi.interp2d(bg_x,bg_y,bd)
-                data_ip = interp(grid_rs_x,grid_rs_y)
-                data[start_r:end_r,start_c:end_c] = np.reshape(data_ip,(pixels,pixels))
-            
-
-    interp = scpi.interp2d(colsRemoved[0::ds],rowsRemoved[0::ds],dataRemoved[0::ds])
-    print(len(naninds))
-    print(rows[naninds].shape,rows[naninds].shape,cols[naninds].shape)
-    dataNan[naninds] = interp(rows[naninds][:,0],cols[naninds][:,0])
-            
-    tile_grid[start_v:end_v,start_h:end_h] = data.copy()
-"""
-    
-    
-    
-"""
-    dataNan = data.copy()
-    dataNan[data == 0] = np.nan
-    
-    dataNanGradX = dataNan.copy()
-    dataNanGradY = dataNan.copy()
-    dataNanGradX[1:-2,:] = dataNanGradX[0:-3,:]-dataNanGradX[2:-1,:]
-    dataNanGradY[1:-2,:] = dataNanGradY[0:-3,:]-dataNanGradY[2:-1,:]
-    dx = np.nanmean(dataNanGradX,axis=1)
-    dy = np.nanmean(dataNanGradY,axis=0)
-    
-    
-    
-"""
-"""
-    dataNan = np.reshape(dataNan,(r*c,))
-    rows = np.zeros((r,c))
-    cols = np.zeros((r,c))
-    for i in range(0,r):
-        rows[i,:] = i
-    for j in range(0,c):
-        cols[:,i] = i
-    dataNan = np.reshape(dataNan,(r*c,))
-    rows = np.reshape(rows,(r*c,))
-    cols = np.reshape(cols,(r*c,))
-    naninds = np.argwhere(np.isnan(dataNan))
-    rowsRemoved = rows[~naninds]
-    colsRemoved = cols[~naninds]
-    dataRemoved = dataNan.copy()[~naninds]
-    
-    ds = 1000
-    interp = scpi.interp2d(colsRemoved[0::ds],rowsRemoved[0::ds],dataRemoved[0::ds])
-    print(len(naninds))
-    print(rows[naninds].shape,rows[naninds].shape,cols[naninds].shape)
-    dataNan[naninds] = interp(rows[naninds][:,0],cols[naninds][:,0])
-    data = np.reshape(dataNan,(r,c))
-    return data
-"""

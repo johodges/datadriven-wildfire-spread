@@ -3,6 +3,14 @@
 Created on Mon Jan 22 11:05:33 2018
 
 @author: jhodges
+
+This file contains classes and functions to read MODIS Level 3 data and
+locate multiple data tiles onto a single larger grid.
+
+Results can be queried from the database or a specific time. If a static query
+time is given, the best estimated value at that time will be returned. If a
+time range is given, the average value across the time interval will be
+returned.
 """
 
 
@@ -18,11 +26,17 @@ import sys
 import math
 
 def coordinatesFromTile(tile):
+    ''' This function will return the longitude and latitude MODIS Level 3
+    tile coordinate from the tile name in the format 'h00v00'
+    '''
     lon = int(tile[1:3])
     lat = int(tile[4:])
     return lat, lon
 
 def loadGPolygon(file):
+    ''' This function will return the corner latitude and longitudes from a
+    MODIS Level 3 metadata xml file.
+    '''
     tree = ET.parse(file)
     root = tree.getroot()
     ps = root[2][9][0][0][0]
@@ -32,6 +46,9 @@ def loadGPolygon(file):
     return p
 
 def loadXmlDate(file):
+    ''' This function will return the start and end dates from a MODIS Level 3
+    metadata xml file.
+    '''
     tree = ET.parse(file)
     root = tree.getroot()
     DT = root[2][8]
@@ -43,16 +60,27 @@ def loadXmlDate(file):
     return startdate, enddate
     
 def arrangeGPolygon(p,topleft=1,topright=2,botleft=0,botright=3):
+    ''' This function will rearrange GPolygon points into a human readable
+    format.
+    '''
     plat = np.array([[p[topleft][1],p[topright][1]],[p[botleft][1],p[botright][1]]])
     plon = np.array([[p[topleft][0],p[topright][0]],[p[botleft][0],p[botright][0]]])
     return plat, plon
 
 def interpGPolygon(plat,plon,pixels=1200):
+    ''' This function will interpolate the 2x2 coordinate matricies to
+    pixel x pixel matricies using bilinear interpolation. Note, this function
+    should not be used with MODIS Level 3 data as the grid is non-linear. Use
+    invertModisTile instead.
+    '''
     lat = zoom(plat,pixels/2,order=1)
     lon = zoom(plon,pixels/2,order=1)
     return lat, lon
 
 def loadSdsData(file,sdsname):
+    ''' This function will open an hdf4 file and return the data stored in
+    the sdsname attribute.
+    '''
     f = phdf.SD(file,phdf.SDC.READ)
     sds_obj = f.select(sdsname)
     data = sds_obj.get()
@@ -176,6 +204,10 @@ def activeFireDayIndex(dates,queryDateTime):
     return index
 
 def invertModisTile(tile,pixels=1200):
+    ''' This function will create a pixel x pixel matrix for latitude and
+    longitude using the tile name. This algorithm is presented in the
+    Active Fire Index User Guide.
+    '''
     R=6371007.181
     T=1111950
     xmin=-20015109
@@ -200,7 +232,7 @@ def buildContour(files,queryDateTime,
     correspond to the same time and be for different tiles. The file names
     should reference the (.hdf) files.
     '''
-    print(files[0])
+    #print(files[0])
     pixels = loadSdsData(files[0],sdsname).shape[1]
     tiles = findAllTilesFromFiles(files)
     tiles_grid_dict, tiles_grid = uc.mapTileGrid(tiles,pixels,coordinatesFromTile)
@@ -243,6 +275,11 @@ def findQuerySdsData(queryDateTime,
                      composite=False,
                      use_all=False,
                      sdsname='1 km 16 days NDVI'):
+    ''' This function will find the specified sdsname for each tile in tiles
+    within the datadir and find the closest to the queryDateTime. Matrices
+    of the latitutde, longitude, and data are returned.
+    '''
+    
     # Arrange files and tiles
     if tiles is None:
         tiles = findAllTilesFromDir(datadir)
@@ -254,100 +291,6 @@ def findQuerySdsData(queryDateTime,
     lat,lon,data = buildContour(files,queryDateTime,sdsname=sdsname,composite=composite)
     
     return lat, lon, data
-
-"""
-
-def removeOutsideAndReshape(lat,lon,data,
-                            lat_lmt = [31,44],
-                            lon_lmt = [-126,-112]):
-    lat_rs = np.reshape(lat,(lat.shape[0]*lat.shape[1]))
-    lon_rs = np.reshape(lon,(lon.shape[0]*lon.shape[1]))
-    data_rs = np.reshape(data,(data.shape[0]*data.shape[1]))
-    
-    inds = np.where((lat_rs<np.max(lat_lmt)) & (lat_rs>np.min(lat_lmt)))
-    lat_rs = lat_rs[inds].copy()
-    lon_rs = lon_rs[inds].copy()
-    data_rs = data_rs[inds].copy()
-    inds = np.where((lon_rs<np.max(lon_lmt)) & (lon_rs>np.min(lon_lmt)))
-    lat_rs = lat_rs[inds].copy()
-    lon_rs = lon_rs[inds].copy()
-    data_rs = data_rs[inds].copy()
-    
-    return lat_rs, lon_rs, data_rs
-
-def gridAndResample(lat,lon,data,
-                    lat_lmt = [31,44],
-                    lon_lmt = [-126,-112],
-                    pxPerDegree = 120,
-                    ds=1,
-                    method='nearest'):
-    lat = np.array(lat)
-    lon = np.array(lon)
-    data = np.array(data)
-    pts = np.zeros((len(lat),2))
-    pts[:,0] = lat
-    pts[:,1] = lon    
-    
-    lat_lnsp = np.linspace(np.min(lat_lmt),np.max(lat_lmt),
-                           (np.max(lat_lmt)-np.min(lat_lmt)+1)*pxPerDegree)
-    lon_lnsp = np.linspace(np.min(lon_lmt),np.max(lon_lmt),
-                           (np.max(lon_lmt)-np.min(lon_lmt)+1)*pxPerDegree)
-    lon_grid, lat_grid = np.meshgrid(lon_lnsp,lat_lnsp)
-    lon_lnsp2 = np.reshape(lon_grid,(lon_grid.shape[0]*lon_grid.shape[1]))
-    lat_lnsp2 = np.reshape(lat_grid,(lat_grid.shape[0]*lat_grid.shape[1]))
-    newpts = np.zeros((len(lat_lnsp2),2))
-    newpts[:,0] = lat_lnsp2
-    newpts[:,1] = lon_lnsp2
-    
-    data_lnsp = scpi.griddata(pts[0::ds],data[0::ds],newpts,method=method)
-    data_grid = np.reshape(data_lnsp,(lat_grid.shape[0],lat_grid.shape[1]))
-    
-    lat_grid = np.array(lat_grid,dtype=np.float32)
-    lon_grid = np.array(lon_grid,dtype=np.float32)
-    
-    return lat_lnsp, lon_lnsp, data_grid
-
-def generateCustomHdf(file,sdsname,lat,lon,data,times,
-                      sdsdescription='none',
-                      sdsunits='none'):
-    hdfFile = SD(file,SDC.WRITE|SDC.CREATE) # Assign a few attributes at the file level
-    hdfFile.author = 'JENSEN HUGHES'
-    hdfFile.productionDate = time.strftime('%Y%j.%H%M',time.gmtime(time.time()))
-    hdfFile.minTimeStamp = str('%.4f'%(np.min(times)))
-    hdfFile.maxTimeStamp = str('%.4f'%(np.max(times)))
-    hdfFile.latitudeL = str('%.8f'%(lat[0]))
-    hdfFile.latitudeR = str('%.8f'%(lat[-1]))
-    hdfFile.longitudeL = str('%.8f'%(lon[0]))
-    hdfFile.longitudeR = str('%.8f'%(lon[-1]))
-    hdfFile.priority = 2
-    d1 = hdfFile.create(sdsname, SDC.FLOAT32, data.shape)
-    d1.description = sdsdescription
-    d1.units = sdsunits
-    dim1 = d1.dim(0)
-    dim2 = d1.dim(1)
-    dim1.setname('latitude')
-    dim2.setname('longitude')
-    dim1.units = 'degrees'
-    dim2.units = 'degrees'
-    d1[:] = data
-    d1.endaccess()
-    hdfFile.end()
-
-def gridFromCustomHdf(file,sdsname):
-    data = file.select(sdsname).get()
-    latitudeL = file.attributes()['latitudeL']
-    latitudeR = file.attributes()['latitudeR']
-    longitudeL = file.attributes()['longitudeL']
-    longitudeR = file.attributes()['longitudeR']
-    
-    lat_lnsp = np.linspace(latitudeL,latitudeR,data.shape[0])
-    lon_lnsp = np.linspace(longitudeL,longitudeR,data.shape[1])
-    
-    lon_grid, lat_grid = np.meshgrid(lon_lnsp,lat_lnsp)
-    
-    return lat_grid, lon_grid, data
-
-"""
 
 def geolocateCandidates(lat,lon,data):
     ''' This function extracts latitude and longitude corresponding to points
@@ -394,6 +337,8 @@ if __name__ == '__main__':
                 California
         case 2: Loads modis vegetation index, active fires, and burned area
                 at queryDateTime for California.
+        case 3: Loads modis active fires at 365 consecuitive queryDateTimes
+                and saves the results.
     '''
     
     # User inputs
@@ -488,93 +433,3 @@ if __name__ == '__main__':
                 old_pts = np.array([])
         #print(match_pts)
         print("AF File Size: %.4f MB"%(af_mem))
-    
-    """
-    if case == 4:
-        import matplotlib.pyplot as plt
-        import pandas as pd
-        import scipy.interpolate as scpi
-        import time
-        #indir = "E:/WildfireResearch/data/terra_hourly_activefires_rp/"
-        indir = "E:/WildfireResearch/data/terra_hourly_activefires/"
-        geodir = "E:/WildfireResearch/data/terra_geolocation/"
-        outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/"
-        files = glob.glob(indir+'/*2017227*.hdf')
-        geofiles = glob.glob(geodir+'/*2017227*.hdf')
-        
-        for i in range(0,len(files)):
-            
-            datas_day = []
-            lats_day = []
-            lons_day = []
-            times_day = []
-            names_day = []
-            datas_night = []
-            lats_night = []
-            lons_night = []
-            times_night = []
-            names_night = []
-        
-        for i in range(0,len(files)): #file in files:
-            file = files[i]
-            basename = file.split('\\rp_')[1] #[:-4]
-            dtstr = basename[7:19]
-            s = "%s %s %s %s"%(dtstr[0:4],dtstr[4:7],dtstr[8:10],dtstr[10:12])
-            dateTime = time.mktime(time.strptime(s,'%Y %j %H %M'))/(3600*24)
-            gfile = [s for s in geofiles if dtstr in s][0]
-            
-
-            sdsname="fire mask"
-            #f = SD(file,SDC.READ)
-            f = SD(xmldir+basename,SDC.READ)
-            sds_obj = f.select(sdsname)
-            data = sds_obj.get()
-            
-            f2 = SD(gfile,SDC.READ)
-            lat = f2.select('Latitude').get()
-            lon = f2.select('Longitude').get()
-            
-            lat_rs,lon_rs,data_rs = removeOutsideAndReshape(lat,lon,data)
-            
-            if int(basename[15:19]) > 800 and int(basename[15:19]) < 2200:
-                #plt.figure(1)
-                datas_day.extend(data_rs)
-                lats_day.extend(lat_rs)
-                lons_day.extend(lon_rs)
-                times_day.append(dateTime)
-                names_day.append(basename)
-            else:
-                #plt.figure(2)
-                datas_night.extend(data_rs)
-                lats_night.extend(lat_rs)
-                lons_night.extend(lon_rs)
-                times_night.append(dateTime)
-                names_night.append(basename)
-            #plt.contourf(lon,lat,data,[0,1,2,3,4,5,6,7,8,9],cmap='jet')
-        lats_day, lons_day, datas_day = gridAndResample(lats_day,lons_day,datas_day)
-        lats_night, lons_night, datas_night = gridAndResample(lats_night,lons_night,datas_night)
-        
-
-        plt.figure(1)
-        fig1 = uc.plotContourWithStates(lats_day,lons_day,datas_day,
-                                        clim=np.linspace(0,9,10),label='AF',
-                                        saveFig=False,saveName='noname')
-
-        plt.figure(2)
-        fig2 = uc.plotContourWithStates(lats_night,lons_night,datas_night,
-                                        clim=np.linspace(0,9,10),label='AF',
-                                        saveFig=False,saveName='noname')
-
-        name = names_day[0].split('MOD14.A')[1].split('.')
-        file = outdir+'MOD14JH.A'+name[0]+'.dddd.'+name[2]+time.strftime('%Y%j.%H%M',time.gmtime(time.time()))+'.hdf'
-        generateCustomHdf(file,'FireMask',lats_day,lons_day,datas_day,times_day,
-                          sdsdescription='Active fires/thermal anomalies mask',
-                          sdsunits='none')
-        
-        name = names_night[0].split('MOD14.A')[1].split('.')
-        file = outdir+'MOD14JH.A'+name[0]+'.nnnn.'+name[2]+time.strftime('%Y%j.%H%M',time.gmtime(time.time()))+'.hdf'
-        generateCustomHdf(file,'FireMask',lats_night,lons_night,datas_night,times_night,
-                          sdsdescription='Active fires/thermal anomalies mask',
-                          sdsunits='none')
-        """
-    

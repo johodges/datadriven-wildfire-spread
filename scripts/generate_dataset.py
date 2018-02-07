@@ -24,9 +24,31 @@ import psutil
 import gc
 import time
 import sys
+import glob
 
 class GriddedMeasurement(object):
-    __slots__ = ['dateTime','latitude','longitude','data','remapped','label','dataName','clim']
+    ''' This class contains a measurement on a latitude and longitude grid.
+    
+        Fields:
+            dateTime: Time stamp of the measurement as a datetime.datetime
+            latitude: Latitude of each gridded point as a numpy.ndarray
+            longitude: Longitude of each gridded point as a numpy.ndarray
+            data: Measurement of each gridded point as a numpy.ndarray
+            label: Label to use when plotting a contour of this measurement
+            dataName: Name associated with this measurement
+            clim: Contour limits to use when plotting a contour of this
+                measurement
+                
+        Functions:
+            mats2pts: This will reshape the latitude and longitude matrices
+                into arrays and return an Nx2 numpy array with [lat,lon]
+            remap: This will remap data, latitude, and longitude to a new grid
+                specified by new_lat and new_lon matrices
+            computeMemory: This will calculate the memory usage by this object
+            strTime: This will return a string containing the time stamp
+                associated with this measurement as a string
+    '''
+    __slots__ = ['dateTime','latitude','longitude','data','label','dataName','clim'] # 'remapped'
     
     def __init__(self,dateTime,lat,lon,data,label):
         self.dateTime = dateTime
@@ -37,6 +59,9 @@ class GriddedMeasurement(object):
         self.clim = None
         
     def __str__(self):
+        ''' This function prints summary information of the object when a
+        string is requested.
+        '''
         if self.dateTime is not None:
             dts = time.mktime(self.dateTime.timetuple())+self.dateTime.microsecond/1E6
             dts = time.strftime('%Y%j%H%M%S',time.localtime(dts))
@@ -50,9 +75,15 @@ class GriddedMeasurement(object):
         return string
     
     def __repr__(self):
+        ''' This function prints summary information of the object when a
+        string is requested.
+        '''
         return self.__str__()
 
     def mats2pts(self,lat,lon):
+        ''' This will reshape the latitude and longitude matrices into arrays
+        and return an Nx2 numpy array with [lat,lon]
+        '''
         lat = np.reshape(lat,(lat.shape[0]*lat.shape[1]))
         lon = np.reshape(lon,(lon.shape[0]*lon.shape[1]))
         pts = np.zeros((len(lat),2))
@@ -60,18 +91,29 @@ class GriddedMeasurement(object):
         pts[:,1] = lon
         return pts
     
-    def remap(self,new_lat,new_lon,ds=10):
+    def remap(self,new_lat,new_lon,ds=10,method='linear'):
+        ''' This will remap data, latitude, and longitude to a new grid
+        specified by new_lat and new_lon matrices.
+        
+        NOTE: ds defines how much to downsample the original grid prior to
+            remapping (scpi.griddate can use too much memory). 
+        NOTE: method defines what method to use in the resampling process. If
+            method='linear' bilinear interpolation will be used. If
+            method='nearest' nearest neighbor value will be used.
+        '''
         oldpts = self.mats2pts(self.latitude,self.longitude)
         newpts = self.mats2pts(new_lat,new_lon)
         values = np.reshape(self.data,(self.data.shape[0]*self.data.shape[1],))
         
-        remapped = scpi.griddata(oldpts[0::ds],values[0::ds],newpts,method='linear')
+        remapped = scpi.griddata(oldpts[0::ds],values[0::ds],newpts,method=method)
         
         self.data = np.reshape(remapped,(new_lat.shape[0],new_lat.shape[1]))
         self.latitude = new_lat.copy()
         self.longitude = new_lon.copy()
 
     def computeMemory(self):
+        ''' This will calculate the memory usage by this object
+        '''
         mem = 0
         slots = self.__slots__
         for key in slots:
@@ -85,7 +127,10 @@ class GriddedMeasurement(object):
         return mem
     
     def strTime(self,hours=True):
-        timeFloat = time.mktime(dataStart.dateTime.timetuple())+self.dateTime.microsecond/1E6
+        ''' This will return a string containing the time stamp associated
+        with this measurement as a string.
+        '''
+        timeFloat = time.mktime(self.dateTime.timetuple())+self.dateTime.microsecond/1E6
         timeTuple = time.localtime(timeFloat)
         if hours:
             return time.strftime('%Y%j%H%M%S',timeTuple)
@@ -93,6 +138,41 @@ class GriddedMeasurement(object):
             return time.strftime('%Y%j%H',timeTuple)
 
 class GriddedMeasurementPair(object):
+    ''' This class contains a pair of measurements on a latitude and longitude
+    grid. The fields associated with the two measurements do not need to be
+    the same.
+    
+        Fields:
+            inTime: Time stamp of the first measurement as a datetime.datetime
+            outTime: Time stamp of the second measurement as a
+                datetime.datetime
+            inKeys: List of fields associated with the first measurement
+            outKeys: List of fields associated with the second measurement
+            latitude: Latitude of each gridded point as a numpy.ndarray
+            longitude: Longitude of each gridded point as a numpy.ndarray
+            
+            NOTE: Keys for each measurement will be added with either In_ or
+                Out_ prefix to denote to which measurement they are
+                associated.
+                
+        Functions:
+            addStartData: This function will add the input data as a new input
+                key
+            addEndData: This function will add the input data as a new output
+                key
+            countData: This function will return teh numberof input and output
+                keys
+            getDataNames: This function will return a list of input and a list
+                of output key names
+            
+            computeMemory: This will calculate the memory usage by this object
+            strTime: This will return a string containing the time stamp
+                associated with this measurement as a string
+            getCenter: This will return the latitude and longitude of the
+                center of the data
+            plot: This will plot the object
+                
+    '''
     #__slots__ = ['inTime','outTime','latitude','longitude','inDatas','outDatas','inKeys','outKeys']
     
     def __init__(self,dataStart,dataEnd,inKeys,outKeys,bounds=None):
@@ -112,16 +192,28 @@ class GriddedMeasurementPair(object):
             #self.outDatas = [dataEnd.data[bounds[0]:bounds[1],bounds[2]:bounds[3]]]
             
     def addStartData(self,data,bounds):
+        ''' This function will add the input data as a new input key.
+        
+        NOTE: The key name will be 'In_' + data.dataName.
+        NOTE: bounds is used when only a subset of the data is to be included.
+        '''
         if data.dataName in self.inKeys:
             d = data.data[bounds[0]:bounds[1],bounds[2]:bounds[3]]
             setattr(self,'In_'+data.dataName,d)
             
     def addEndData(self,data,bounds):
+        ''' This function will add the input data as a new output key.
+        
+        NOTE: The key name will be 'Out_' + data.dataName.
+        NOTE: bounds is used when only a subset of the data is to be included.
+        '''
         if data.dataName in self.outKeys:
             d = data.data[bounds[0]:bounds[1],bounds[2]:bounds[3]]
             setattr(self,'Out_'+data.dataName,d)
     
     def countData(self):
+        ''' This function will return the number of input and output keys
+        '''
         inCounter = 0
         outCounter = 0
         for key in self.__dict__.keys():
@@ -132,6 +224,9 @@ class GriddedMeasurementPair(object):
         return inCounter, outCounter
     
     def getDataNames(self):
+        ''' This function will return a list of input and a list of output key
+        names
+        '''
         inData = []
         outData = []
         for key in self.__dict__.keys():
@@ -142,12 +237,15 @@ class GriddedMeasurementPair(object):
         return inData, outData
     
     def __str__(self):
+        ''' This function prints summary information of the object when a
+        string is requested.
+        '''
         inTime, outTime = self.strTime()
         string = "Gridded Measurement Pair\n"
         string = string + "\tinTime:\t\t%s (yyyydddhhmmssss)\n"%(inTime)
         string = string + "\toutTime:\t%s (yyyydddhhmmssss)\n"%(outTime)
         string = string + "\tgrid:\t\t%.0f,%.0f (Latitude,Longitude)\n"%(self.latitude.shape[0],self.longitude.shape[1])
-        string = string + "\tmemory:\t\t%.4f MB"%(self.computeMemory())
+        string = string + "\tmemory:\t\t%.4f MB\n"%(self.computeMemory())
         string = string + "\tInputs:\n"
         for key in self.__dict__.keys():
             if "In_" in key:
@@ -159,9 +257,14 @@ class GriddedMeasurementPair(object):
         return string
     
     def __repr__(self):
+        ''' This function prints summary information of the object when a
+        string is requested.
+        '''
         return self.__str__()
     
     def computeMemory(self):
+        ''' This will calculate the memory usage by this object
+        '''
         mem = 0
         slots = self.__dict__.keys()
         for key in slots:
@@ -175,6 +278,9 @@ class GriddedMeasurementPair(object):
         return mem
     
     def strTime(self,hours=True):
+        ''' This will return a string containing the time stamp associated
+        with this measurement as a string.
+        '''
         inTimeFloat = time.mktime(self.inTime.timetuple())+self.inTime.microsecond/1E6
         inTimeTuple = time.localtime(inTimeFloat)
         outTimeFloat = time.mktime(self.outTime.timetuple())+self.outTime.microsecond/1E6
@@ -185,6 +291,9 @@ class GriddedMeasurementPair(object):
             return time.strftime('%Y%j%H',inTimeTuple), time.strftime('%Y%j%H',outTimeTuple)
 
     def getCenter(self,decimals=4):
+        ''' This will return the latitude and longitude of the mean of the
+        latitude and longitude of the data
+        '''
         lat = str(round(np.mean(self.latitude),decimals))
         lon = str(round(np.mean(self.longitude),decimals))
         return lat, lon
@@ -196,12 +305,13 @@ class GriddedMeasurementPair(object):
              clim=None,
              cmap='jet',
              label='None'):
+        ''' This function will plot the gridded measurement pair
+        '''
         
         inNum, outNum = self.countData()
         inNames, outNames = self.getDataNames()
         inTime, outTime = self.strTime()
         
-        #print(inNum,outNum)
         totalPlots = np.ceil((float(inNum)+float(outNum))**0.5)
         colPlots = totalPlots
         rowPlots = np.ceil((float(inNum)+float(outNum))/colPlots)
@@ -226,14 +336,12 @@ class GriddedMeasurementPair(object):
         ymin = np.round(np.min(self.latitude),1)
         ymax = np.round(np.max(self.latitude),1)
         yticks = np.linspace(ymin,ymax,int(round((ymax-ymin)/0.1)+1))
-        
-        #xticks = np.round(np.linspace(np.min(self.longitude),np.max(self.longitude),5),2)
-        #yticks = np.round(np.linspace(np.min(self.latitude),np.max(self.latitude),5),2)
+
         names = inNames+outNames
         for i in range(0,len(names)):
             key = names[i]
             currentPlot = currentPlot+1
-            #print(rowPlots,colPlots,currentPlot)
+
             ax = fig.add_subplot(rowPlots,colPlots,currentPlot)
             ax.tick_params(axis='both',labelsize=fntsize)
             plt.xticks(xticks)
@@ -241,8 +349,7 @@ class GriddedMeasurementPair(object):
             plt.xlabel('Longitude',fontsize=fntsize)
             plt.ylabel('Latitude',fontsize=fntsize)
             plt.title(key,fontsize=fntsize)
-            #print(key)
-            #print('FireMask' in key)
+
             if 'FireMask' in key:
                 clim = np.linspace(0,9,10)
                 label = 'AF'
@@ -263,18 +370,7 @@ class GriddedMeasurementPair(object):
                 label = ''
             img = ax.contourf(self.longitude,self.latitude,getattr(self,key),levels=clim,cmap=cmap)
             img_cb = plt.colorbar(img,ax=ax,label=label)
-            #img.set_clim(clim[0],clim[-1])
-            #plt.clim(0, 9.0)
-            
-            #img_cb.set_clim(clim[0],clim[-1])
-            
-#            if clim is None:
-#                pass
-#                #img = ax.contourf(self.longitude,self.latitude,getattr(self,key),cmap=cmap)
-#                #img_cb = plt.colorbar(img,ax=ax,label=label)
-#            else:
-#                img = ax.contourf(self.longitude,self.latitude,getattr(self,key),clim=clim,cmap=cmap)
-#                img_cb = plt.colorbar(img,ax=ax,label=label,ticks=clim)
+
             img_cb.set_label(label=label,fontsize=fntsize)
             img_cb.ax.tick_params(axis='both',labelsize=fntsize)
             ax.grid(linewidth=lnwidth/4,linestyle='-.',color='k')
@@ -288,72 +384,13 @@ class GriddedMeasurementPair(object):
             plt.clf()
             plt.close(fig)
 
-    def plot_old(self,
-             saveFig=False,
-             closeFig=None,
-             saveName='',
-             clim=None,
-             cmap='jet',
-             label='None'):
-        
-        inTime, outTime = self.strTime()
-        
-        if saveFig:
-            fntsize = 80
-            lnwidth = 10
-            fig = plt.figure(figsize=(48,20),tight_layout=True)
-            if closeFig is None:
-                closeFig = True
-        else:
-            fig = plt.figure(figsize=(12,5))#,tight_layout=True)
-            fntsize = 20
-            lnwidth = 2
-            if closeFig is None:
-                closeFig = False
-        
-        ax1 = fig.add_subplot(1,2,1)
-        plt.xlabel('Longitude',fontsize=fntsize)
-        plt.ylabel('Latitude',fontsize=fntsize)
-        plt.title(inTime,fontsize=fntsize)
-        
-        ax2 = fig.add_subplot(1,2,2)
-        plt.xlabel('Longitude',fontsize=fntsize)
-        plt.title(outTime,fontsize=fntsize)
-        
-        if clim is None:
-            img1 = ax1.contourf(self.longitude,self.latitude,self.inData1,cmap=cmap)
-            img2 = ax2.contourf(self.longitude,self.latitude,self.outData,cmap=cmap)
-        else:
-            img1 = ax1.contourf(self.longitude,self.latitude,self.inData1,clim,cmap=cmap)
-            img2 = ax2.contourf(self.longitude,self.latitude,self.outData,clim,cmap=cmap)
-        ax1.tick_params(axis='both',labelsize=fntsize)
-        ax2.tick_params(axis='both',labelsize=fntsize)
-
-        # Add colorbar
-        fig.subplots_adjust(right=0.85)
-        cbar_ax = fig.add_axes([0.90, 0.1, 0.025, 0.8])
-        
-        if clim is None:
-            img_cb = fig.colorbar(img1,cax=cbar_ax,label=label)
-        else:
-            img_cb = fig.colorbar(img1,cax=cbar_ax,label=label,ticks=clim)
-        
-        img_cb.set_label(label=label,fontsize=fntsize)
-        cbar_ax.tick_params(axis='both',labelsize=fntsize)
-
-        if saveFig:
-            ax1.grid(linewidth=lnwidth/4,linestyle='-.',color='k')
-            ax2.grid(linewidth=lnwidth/4,linestyle='-.',color='k')
-            for ln in ax1.lines:
-                ln.set_linewidth(lnwidth)
-            fig.savefig(saveName)
-            
-        if closeFig:
-            plt.clf()
-            plt.close(fig)
         
 
 def extractCandidates(dataStart,dataEnd,inKeys,outKeys,matches,nhood=[50,50]):
+    ''' This function will extract a list of match points from a list of start
+    data and a list of end data and store it as a list of
+    GriddedMeasurementPairs
+    '''
     
     datas = []    
     for i in range(0,len(matches)):
@@ -361,19 +398,23 @@ def extractCandidates(dataStart,dataEnd,inKeys,outKeys,matches,nhood=[50,50]):
         rowUp = matches[i][0]+nhood[0]
         colLow = matches[i][1]-nhood[1]
         colUp = matches[i][1]+nhood[1]
-        bounds=[rowLow,rowUp,colLow,colUp]    
-        data = GriddedMeasurementPair(dataStart[0],dataEnd[0],inKeys,outKeys,bounds=bounds)
-    
-        for d in dataStart:
-            data.addStartData(d,bounds)
-                
-        for d in dataEnd:
-            data.addEndData(d,bounds)
-                
-        datas.append(data)
-
+        bounds=[rowLow,rowUp,colLow,colUp]
+        
+        if rowLow > 0 and rowUp < dataStart[0].data.shape[0] and colLow > 0 and colUp < dataStart[0].data.shape[1]:
+            data = GriddedMeasurementPair(dataStart[0],dataEnd[0],inKeys,outKeys,bounds=bounds)
+        
+            for d in dataStart:
+                data.addStartData(d,bounds)
+                    
+            for d in dataEnd:
+                data.addEndData(d,bounds)
+                    
+            datas.append(data)
+    if len(datas) == 0:
+        datas = None
     return datas
 
+"""
 def extractCandidates2(dataStart,dataEnd,matches,nhood=[50,50]):
     bounds = dataStart.data.shape
     
@@ -389,8 +430,12 @@ def extractCandidates2(dataStart,dataEnd,matches,nhood=[50,50]):
                     bounds=[rowLow,rowUp,colLow,colUp])
             datas.append(data)
     return datas
+"""
 
 def compareGriddedMeasurement(data1,data2):
+    ''' This function checks if 2 GriddedMeasurements have the same header
+    information.
+    '''
     if data1 is None or data2 is None:
         return False
     if (str(data1.dateTime) == str(data2.dateTime)) and (str(data1.dataName) == str(data2.dataName)):
@@ -399,6 +444,10 @@ def compareGriddedMeasurement(data1,data2):
         return False
 
 def loadDataByName(queryDateTime,dataName):
+    ''' This function will find the latitude, longitude, and data at a
+    queryDateTime for the provided dateName. Specific cases correspond to
+    different import functions.
+    '''
     modOffset = 0.0
     if dataName == 'FireMaskHourlyTA':
         lat, lon, dataRaw, timeStamp =  rsd.queryTimeCustomHdf(
@@ -499,6 +548,12 @@ def queryDatabase(queryDateTime,dataNames,
                   asosTimeRange = dt.timedelta(days=0,hours=12,minutes=0),
                   asosResolution = 111,
                   closest=False):
+    ''' This function will query the database for a specific queryDateTime
+    for each name in dataNames.
+    
+    NOTE: queryTimeRange is a list of hour offsets from the queryDateTime to
+        also consider.
+    '''
     datas = []
     modis_lat = None
     for dataName in dataNames:
@@ -561,6 +616,12 @@ def getCandidates(queryDateTime,dataNames,
                   queryTimeRange=None,
                   oldData=None,
                   candidateThresh=100):
+    ''' This function will query the database for a queryDateTime,
+    queryDateTime + 6 hours, and queryDateTime + 12 hours. It will then look
+    for data which are spatially coherent between the 3 sets. If enough
+    values are found, the queryDateTime is considered a match, and the
+    matches are returned.
+    '''
     if queryTimeRange is None:
         queryTimeRange = np.linspace(0,12,int((12*1*1)/6+1))
     
@@ -568,6 +629,8 @@ def getCandidates(queryDateTime,dataNames,
                           asosTimeRange=asosTimeRange,
                           asosResolution=asosResolution,
                           queryTimeRange=queryTimeRange)
+    if len(datas) == 0:
+        return None, None, None
     
     data = datas[0]
     if not compareGriddedMeasurement(data,oldData):
@@ -598,6 +661,24 @@ def getCandidates(queryDateTime,dataNames,
     
     return datas[0], datas[1], coordsMatch
 
+def loadCandidates(indirs):
+    ''' This function will laod all candidate pickle files from a list
+    of directories.
+    '''
+    if type(indirs) is not list:
+        indirs = [indirs]
+    files = []
+    for indir in indirs:
+        if indir[-1] != '/':
+            indir = indir+'/'
+        files.extend(glob.glob(indir+'*.pkl'))
+    
+    datas = []
+    for file in files:
+        data = uc.readPickle(file)
+        if data is not None:
+            datas.extend(data)
+    return datas
 
 if __name__ == "__main__":
     ''' case 0: Find active fire, elevation, wind-x, wind-y, burned area, and
@@ -605,10 +686,13 @@ if __name__ == "__main__":
         case 1: Generate daily active fire map for 360 days from one satellite
         case 2: Compare active fire index from aqua and terraf or a single
                 query time
+        case 3: This case reads one hourly active fire data set and one daily
+                composite data set and plots them both.
+        case 6: This case will find candidate matches in the input directory.
     '''
     
     
-    case = 0
+    case = 6
     
     if case == 0:
         tim = uc.tic()
@@ -635,9 +719,9 @@ if __name__ == "__main__":
                     label=data.label,clim=data.clim,
                     saveFig=True,saveName=name)
     elif case == 1:
-        import matplotlib
-        matplotlib.use('agg')
-        import matplotlib.pyplot as plt
+        #import matplotlib
+        #matplotlib.use('agg')
+        #import matplotlib.pyplot as plt
         queryDateTime = dt.datetime(year=2017,month=1,day=1,hour=12,minute=0)
         satellite = 'aqua'
         if satellite == 'aqua':
@@ -648,6 +732,7 @@ if __name__ == "__main__":
             ns = 'AFterra'
         
         outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/AF_images/'
+        old_pts = np.array([])
         for i in range(0,360):
             mem = psutil.virtual_memory()[2]
             
@@ -835,7 +920,7 @@ if __name__ == "__main__":
         #import matplotlib.pyplot as plt
         tim = uc.tic()
         #queryDateTime = dt.datetime(year=2017,month=12,day=4,hour=5,minute=53)
-        basetime = '2016167'
+        basetime = '2016001'
         asosTimeRange = dt.timedelta(days=0,hours=12,minutes=0)
         asosResolution = 111
         outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/GoodCandidateComparison/'
@@ -846,24 +931,50 @@ if __name__ == "__main__":
             
         candidates = []
         oldData = None
-        for i in range(0,200): #8
+        toPlot = False
+        for i in range(0,2000): #8
             mem = psutil.virtual_memory()[2]
             if mem < 90.0:
                 queryTime = time.mktime(time.strptime(basetime+'15','%Y%j%H'))+(3600*6)*float(i)
+                queryTimestr = time.strftime('%Y%j%H',time.localtime(queryTime))
                 queryDateTime = dt.datetime.fromtimestamp(queryTime)
-                
-                dataIn, dataOut, coordinateMatches = getCandidates(queryDateTime,['FireMaskHourlyTA'],oldData=oldData)
-                oldData = dataIn
+                if glob.glob(outdir+queryTimestr+'.pkl') == []:
+                    dataIn, dataOut, coordinateMatches = getCandidates(queryDateTime,['FireMaskHourlyTA'],oldData=oldData)
+                    oldData = dataIn
+                    mem = psutil.virtual_memory()[2]
+                    if mem < 90.0:
+                        if dataIn is not None and dataOut is not None and coordinateMatches is not None:
+                            print("extractCandidates on time %s"%(queryTimestr))
+                            datas2= queryDatabase(queryDateTime,dataNames,
+                                                  asosTimeRange=asosTimeRange,
+                                                  asosResolution=asosResolution,
+                                                  queryTimeRange=[0],
+                                                  closest=True)
+                            dataExtract = extractCandidates(datas2,[dataOut],inKeys,outKeys,coordinateMatches,nhood=[25,25])
+                        else:
+                            print("no Candidates on time %s"%(queryTimestr))
+                            dataExtract = None
+                        uc.dumpPickle(dataExtract,outdir+queryTimestr+'.pkl')
+                        print("\t%s created."%(outdir+queryTimestr+'.pkl'))
+                    else:
+                        print("memory too high to extract i=%.0f"%(i))
+                else:
+                    print("Skipping queryTime: %s exists"%(outdir+queryTimestr+'.pkl'))
+                    dataIn = None
+                    dataOut = None
+                    coordinateMatches = None
+                    oldData = None
+                    dataExtract = None
             else:
-                print("memory too high, i=%.0f"%(i))
-            if dataIn is not None and dataOut is not None and coordinateMatches is not None:
-                datas2= queryDatabase(queryDateTime,dataNames,
-                                      asosTimeRange=asosTimeRange,
-                                      asosResolution=asosResolution,
-                                      queryTimeRange=[0],
-                                      closest=True)
-                #dataExtract = extractCandidates2(dataIn,dataOut,coordinateMatches,nhood=[25,25])
-                dataExtract = extractCandidates(datas2,[dataOut],inKeys,outKeys,coordinateMatches,nhood=[25,25])
+                print("memory too high to read i=%.0f"%(i))
+                dataIn = None
+                dataOut = None
+                coordinateMatches = None
+                oldData = None
+                dataExtract = None
+
+            if dataExtract is not None and toPlot:
+                memError = False
                 for j in range(0,len(dataExtract)):
                     mem = psutil.virtual_memory()[2]
                     if mem < 90.0:
@@ -876,84 +987,12 @@ if __name__ == "__main__":
                                   clim=np.linspace(0,9,10),
                                   label='AF')
                     else:
-                        print("memory too high, j=%.0f"%(j))
-                oldData = dataIn
+                        memError = True
+                        print("memory too high to plot, j=%.0f"%(j))
                 
-            
-            #coordsMatch = coords[np.array(np.squeeze(match_pts)[:,0],dtype=np.int),:]
-            #candidates.append([time.strftime('%Y%j%H',time.localtime(queryTime)),candidateCheck,datas[0],datas[1],coordsMatch])
+    if case == 7:
+        indir = ['C:/Users/JHodges/Documents/wildfire-research/output/GoodCandidateComparison/']
+        datas = loadCandidates(indir)
         
         
-        #datasExtract = []
-        #for i in range(0,len(candidates)):
-        #    dataStart = candidates[i][2]
-        #    dataEnd = candidates[i][3]
-        #    timeStart = dataStart.strTime(hours=False)
-        #    timeEnd = dataEnd.strTime(hours=False)
-        #    matches = candidates[i][4]
-        #   dataExtract = extractCandidates(dataStart,dataEnd,matches,nhood=[25,25])
-        #    datasExtract.append(dataExtract)
-            
         
-#        for i in range(0,len(datasExtract)):
-#            for j in range(0,5):#len(datas[i])):
-#                mem = psutil.virtual_memory()[2]
-#                if mem < 90.0:
-#                    data = datasExtract[i][j]
-#                    lat, lon = data.getCenter(decimals=4)
-#                    
-#                    data.plot(saveFig=True,
-#                              closeFig=None,
-#                              saveName=outdir+data.strTime(hours=False)[0]+'_'+lat+'_'+lon+'.png',
-#                              clim=np.linspace(0,9,10),
-#                              label='AF')
-#                else:
-#                    print("memory too high.")
-        
-
-               
-            
-            
-            
-            
-            
-            
-            
-        #plt.xlim(xlim)
-        #plt.ylim(ylim)
-                    
-
-        """
-
-
-
-
-        data_mask = data.data.copy()
-        data_mask[data_mask < 7] = 0
-                    pts = pm.extractCandidates(data.latitude,data.longitude,data_mask)
-                    if i > 0:
-                        match_pts = pm.compareCandidates(old_pts,pts)
-                        if match_pts.shape[0] > 0:
-                            print("Time %s found %.0f matches with the closest %.4f km."%(queryDateTime.isoformat(),match_pts.shape[0],np.min(match_pts[:,1])))
-                    else:
-                        pass
-                    queryDateTime = queryDateTime + dt.timedelta(days=1)
-                    old_pts = pts
-                    gc.collect()
-                    plt.show()
-        
-        
-        print("Time to load data:")
-        tim = uc.toc(tim)
-        
-        
-        for data in datas:
-            if data.dateTime is not None:
-                dts = time.mktime(data.dateTime.timetuple())+data.dateTime.microsecond/1E6
-                dts = time.strftime('%Y%j%H%M%S',time.localtime(dts))
-            name = outdir+ns+dts+'_'+data.dataName+'.png'
-            fig = uc.plotContourWithStates(
-                    data.latitude,data.longitude,data.data,
-                    label=data.label,clim=data.clim,
-                    saveFig=True,saveName=name)
-        """

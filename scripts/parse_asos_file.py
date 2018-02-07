@@ -3,6 +3,15 @@
 Created on Wed Dec 27 16:05:51 2017
 
 @author: JHodges
+
+This file contains classes and functions to read ASOS station meta-data and
+parse METAR output files line by line to assign measurements to the correct
+ASOS station. The results are pickled for ease of access later.
+
+Results can be queried from the database or a specific time. If a static query
+time is given, the best estimated value at that time will be returned. If a
+time range is given, the average value across the time interval will be
+returned.
 """
 
 import numpy as np
@@ -15,6 +24,8 @@ import sys
 import util_common as uc
 
 class ASOSMeasurementList(object):
+    ''' This class contains a list of ASOS measurements
+    '''
     __slots__ = ['dateTime','temperatureC','relativeH','directionDeg','speedMps','gustMps']
     
     def __init__(self):
@@ -26,6 +37,8 @@ class ASOSMeasurementList(object):
         self.gustMps = []
     
     def addTime(self,dateTime,temperatureC,relativeH,directionDeg,speedMps,gustMps):
+        ''' This function adds a measurement time
+        '''
         self.dateTime.append(dateTime)
         self.temperatureC.append(temperatureC)
         self.relativeH.append(relativeH)
@@ -34,6 +47,9 @@ class ASOSMeasurementList(object):
         self.gustMps.append(gustMps)
 
 class ASOSStation(object):
+    ''' This class contains meta-data information for an ASOS station and lists
+    of ASOS meaurements.
+    '''
     __slots__ = ['latitude','longitude','name','call',
                  'dateTime','temperatureC','relativeH','directionDeg','speedMps','gustMps',
                  #'ncdcid','wban','coopid','aname','country','state','county','elevation','utc','stntype',
@@ -65,6 +81,8 @@ class ASOSStation(object):
         self.dateTime = [] # List of time stamps
         
     def computeMemory(self):
+        ''' This function calculates the memory requirements of the object
+        '''
         mem = 0
         slots = self.__slots__
         for key in slots:
@@ -75,6 +93,9 @@ class ASOSStation(object):
         return mem
 
     def __str__(self):
+        ''' This function prints summary information of the object when a
+        string is requested.
+        '''
         string = "%s ASOS Station\n"%(self.name)
         string = string + "\tTotal measurements:\t%.0f\n"%(len(self.dateTime))
         string = string + "\tEarliest dateTime:\t%s\n"%(min(self.dateTime))
@@ -82,9 +103,14 @@ class ASOSStation(object):
         return string
     
     def __repr__(self):
+        ''' This function prints summary information of the object when a
+        string is requested.
+        '''
         return self.__str__()
 
     def addTime(self,data):
+        ''' This function adds a measurement time to the object
+        '''
         self.temperatureC.extend(data.temperatureC)
         self.relativeH.extend(data.relativeH)
         self.directionDeg.extend(data.directionDeg)
@@ -93,6 +119,9 @@ class ASOSStation(object):
         self.dateTime.extend(data.dateTime)
 
     def timeAverage(self,timeRange):
+        ''' This function calcualtes the average measurement during a time
+        interval.
+        '''
         dateTimeNp = []
         for i in self.dateTime:
             dateTimeNp.append(np.datetime64(i))
@@ -130,11 +159,17 @@ class ASOSStation(object):
         return dataNp
         
     def findTime(self,queryDateTime):
+        ''' This function returns the index of the best matching time in the
+        database to the query time.
+        '''
         bestMatchValue = min(self.dateTime, key=lambda d: abs(d-queryDateTime))
         bestMatchIndex = self.dateTime.index(bestMatchValue)
         return bestMatchIndex
 
     def extractTimeAverage(self,queryDateTime,timeRange):
+        ''' This function extracts the time avarege centered at a query time
+        with a delta time range specified.
+        '''
         def list2avg(dataL,inds):
             dataNp = np.array(dataL)
             dataNp[dataNp == None] = np.nan
@@ -161,6 +196,9 @@ class ASOSStation(object):
         return np.array([queryDateTime,temperatureC,relativeH,directionDeg,speedMps,gustMps])
     
     def sortMeasurements(self):
+        ''' This function will sort the measurements in the database in
+        ascending order based on acquisition time.
+        '''
         self.temperatureC = [x for _, x in sorted(zip(self.dateTime,self.temperatureC), key=lambda pair: pair[0])]
         self.relativeH = [x for _, x in sorted(zip(self.dateTime,self.relativeH), key=lambda pair: pair[0])]
         self.directionDeg = [x for _, x in sorted(zip(self.dateTime,self.directionDeg), key=lambda pair: pair[0])]
@@ -172,11 +210,16 @@ class ASOSStation(object):
 
 
 def convertKnots(speedKnot):
+    ''' This function will convert a wind speed in knots to m/s
+    '''
     if speedKnot is not None:
         speedMps = speedKnot*0.514444
     return speedMps
 
 def findGeoLimits(stations):
+    ''' This function will find the extents of latitude and longitude covered
+    by stations in the database.
+    '''
     minLatitude = 360
     maxLatitude = -360
     minLongitude = 360
@@ -193,14 +236,20 @@ def findGeoLimits(stations):
     return [minLatitude,maxLatitude,minLongitude,maxLongitude]
 
 def stationsSortMeasurements(stations):
+    ''' This function will call each station in the database and sort the
+    measurements in ascending order by acquisition time.
+    '''
     for key, value in stations.items():
         value.sortMeasurements()
     return stations
 
 def convertVector(speedMps,directionDeg):
+    ''' This function will convert wind speed measurements from polar
+    coordinates to Cartesian coordinates.
+    '''
     if directionDeg == -1:
-        speedX = speedMps*2**0.5
-        speedY = speedMps*2**0.5
+        speedX = speedMps/(2**0.5)
+        speedY = speedMps/(2**0.5)
     elif directionDeg is None:
         pass
         print("Wind direction was not set.")
@@ -216,6 +265,9 @@ def convertVector(speedMps,directionDeg):
     return speedX, speedY
 
 def getStationsMeasurements(stations,queryDateTime,timeRange):
+    ''' This function will return the average measurements from a specified
+    query time and time range for each station.
+    '''
     measurements = []
     for key, value in stations.items():
         data = value.extractTimeAverage(queryDateTime,timeRange)
@@ -227,6 +279,9 @@ def getStationsMeasurements(stations,queryDateTime,timeRange):
     return measurements
 
 def defineStations(filename):
+    ''' This function reads the meta-data for each station from an input
+    file. Input file obtained from: https://www.ncdc.noaa.gov/homr/reports
+    '''
     def str2Int(s):
         s = s.strip()
         return int(s) if s else np.nan
@@ -266,6 +321,19 @@ def defineStations(filename):
     
 
 def parseMETARline(line,debug=False):
+    ''' This function will read a single METAR line and return air
+    temperature, relative humidity, wind direction, wind speed, gust speed,
+    and time information.
+    
+    NOTE: The input METAR files were obtained from:
+        ftp://ftp.ncdc.noaa.gov/pub/data/asos-fivemin/
+    NOTE: Not all measurements are published for every METAR station. Missing
+        measurementes are returned as None.
+    NOTE: The lines in the file tend to not follow the specified format
+        published by NOAA in the Automated Surface Observing Systemm User's
+        Guide. When parts of a line cannot be determined, None is returned for
+        that measurement. Other measurements will still try to be parsed.
+    '''
     line_split = line.split(' ')
     start_index = line_split.index('5-MIN') if '5-MIN' in line_split else -1
     if start_index == -1:
@@ -411,13 +479,9 @@ def parseMETARline(line,debug=False):
     
     return [temperatureC,relativeH,directionDeg,speedMps,gustMps], [day,hour,minute]
 
-
-
-
-
-
-
 def parseMETARfile(file):
+    ''' This function will load data from an input METAR file.
+    '''
     dateTimes = []
     datas = ASOSMeasurementList()
     with open(file) as f:
@@ -453,6 +517,11 @@ def parseMETARfile(file):
 def readStationsFromText(filename='../data-test/asos-stations.txt',
                          datadirs=['E:/WildfireResearch/data/asos-fivemin/6401-2016/'],
                          timeRange = dt.timedelta(days=0,hours=0,minutes=30)):
+    ''' This function will generate a list of ASOSStations which contain
+    all the measurements found in the list of directories contained in
+    datadirs. The timeRange option determine what temporal range to use in
+    averaging.
+    '''
     stations = defineStations(filename)
     empty_stations = []
     totalMem = 0
@@ -489,15 +558,22 @@ def readStationsFromText(filename='../data-test/asos-stations.txt',
     return stations
 
 def dumpPickleStations(stations,filename='../data-test/asos-stations.pkl'):
+    ''' This function will dump a stations file to pickle
+    '''
     with open(filename,'wb') as f:
         pickle.dump(stations,f)
         
 def readPickleStations(filename='../data-test/asos-stations.pkl'):
+    ''' This function will read a stations file from pickle
+    '''
     with open(filename,'rb') as f:
         stations = pickle.load(f)
     return stations
 
 def computeStationsMemory(stations,printSummary=True):
+    ''' This function will calculate the total memory used by a list of
+    stations.
+    '''
     mem = 0
     for station in stations:
         mem2 = stations[station].computeMemory()
@@ -507,6 +583,8 @@ def computeStationsMemory(stations,printSummary=True):
     return mem
 
 def nanInterp(data):
+    ''' This function will interpolate nan values in a dataset.
+    '''
     x = data[:,0]
     for i in range(1,len(data[0,:])):
         y = data[:,i]
@@ -541,6 +619,9 @@ def queryWindSpeed(queryDateTime,
                    filename='../data-test/asos-stations.pkl',
                    resolution=111,
                    timeRange = dt.timedelta(days=0,hours=0,minutes=30)):
+    ''' This is the function which is called to query wind speed at a
+    specific time.
+    '''
     stations = readPickleStations(filename=filename)
     lat, lon = buildCoordinateGrid(stations,resolution=resolution)
     measurements = getStationsMeasurements(stations,queryDateTime,timeRange)
@@ -554,7 +635,7 @@ if __name__ == "__main__":
         case 1: Load pickled data, compute memory requirements
         case 2: Load pickled data, plot data at query time
     '''
-    case = 2
+    case = 0
     filename = '../data-test/asos-stations.txt'
     datadirs=['E:/WildfireResearch/data/asos-fivemin/6401-2016/',
               'E:/WildfireResearch/data/asos-fivemin/6401-2017/']

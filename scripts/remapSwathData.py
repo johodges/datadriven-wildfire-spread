@@ -3,6 +3,10 @@
 Created on Tue Jan 30 14:44:04 2018
 
 @author: JHodges
+
+This file contains classes and functions to read MODIS Level 2 data and
+locate multiple data tiles onto a consistent grid.
+
 """
 
 import numpy as np
@@ -18,6 +22,17 @@ import util_common as uc
 import datetime as dt
 
 class MODISHourlyMeasurement(object):
+    ''' This class is an intermediate used to pass data more easily
+    
+    Fields:
+        time: dateTime associated with the measurement
+        data: data assoicated with the measurement
+        name: name of the measurement
+        latitude: latitude grid of the measurement
+        longitude: longitude grid of the measurement
+        file: filename from which the measurement was loaded
+    '''
+        
     __slots__ = ['time','latitude','longitude','data','name','file']
     
     def __init__(self,dtime,lat,lon,data,name,file):
@@ -30,6 +45,9 @@ class MODISHourlyMeasurement(object):
 
 def generateEnvironment(data_dir="/C/Users/JHodges/My\ Documents/wildfire-research/tools/MRTSwath_download_Win/MRTSwath/data",
                         home_dir="/C/Users/JHodges/My\ Documents/wildfire-research/tools/MRTSwath_download_Win/MRTSwath"):
+    ''' This function will generate the environment necessary to use the
+    MODIS remapping tool. Unused in the custom remapping.
+    '''
     my_env = os.environ.copy()
     my_env['MRTSWATH_DATA_DIR'] = data_dir
     my_env['MRTSWATH_HOME'] = home_dir
@@ -40,6 +58,9 @@ def findFilePaths(inputFile,outputFile,geoFile,
                   indir="E:/WildfireResearch/data/terra_hourly_activefires",
                   outdir="E:/WildfireResearch/data/terra_hourly_activefires_rp",
                   geodir="E:/WildfireResearch/data/terra_geolocation"):
+    ''' This function will generate system paths necessary to use the
+    MODIS remapping tool. Unused in the custom remapping.
+    '''
     programPath = pdir+'/swath2grid.exe'
     inputPath = indir+'/'+inputFile
     outputPath = outdir+'/'+outputFile
@@ -48,7 +69,9 @@ def findFilePaths(inputFile,outputFile,geoFile,
     return programPath, inputPath, outputPath, geoPath
 
 def buildCommand(programPath,inputPath,outputPath,geoPath):
-    
+    ''' This function will generate the command necessary to use the
+    MODIS remapping tool. Unused in the custom remapping.
+    '''
     myCommand = [programPath,
                  '-if='+inputPath,
                  '-of='+outputPath,
@@ -64,7 +87,9 @@ def buildCommand(programPath,inputPath,outputPath,geoPath):
 def remapUsingTool(indir="E:/WildfireResearch/data/terra_hourly_activefires",
                    outdir="E:/WildfireResearch/data/terra_hourly_activefires_rp",
                    geodir="E:/WildfireResearch/data/terra_geolocation"):
-
+    ''' This function will remap data from the input directory to the Level 3
+    MODIS grid using the MODIS remapping tool.
+    '''
     my_env = generateEnvironment()
     
     af_files = glob.glob(indir+'/*.hdf')
@@ -98,6 +123,9 @@ def remapUsingTool(indir="E:/WildfireResearch/data/terra_hourly_activefires",
 def removeOutsideAndReshape(lat,lon,data,
                             lat_lmt = [31,44],
                             lon_lmt = [-126,-112]):
+    ''' This function will reduce the matrix size of the dataset using user
+    defined latitude and longitude limits.
+    '''
     lat_rs = np.reshape(lat,(lat.shape[0]*lat.shape[1]))
     lon_rs = np.reshape(lon,(lon.shape[0]*lon.shape[1]))
     data_rs = np.reshape(data,(data.shape[0]*data.shape[1]))
@@ -120,6 +148,10 @@ def gridAndResample(data,
                     pxPerDegree = 120,
                     ds=1,
                     method='nearest'):
+    ''' This function will resample the raw Level 2 data from the swath grid
+    to the custom Level 3 grid.
+    '''
+    
     lat = data.latitude
     lon = data.longitude
     
@@ -152,6 +184,8 @@ def gridAndResample(data,
 def generateCustomHdf(data,outdir,sdsname,
                       sdsdescription='Active fires/thermal anomalies mask',
                       sdsunits='none'):
+    ''' This function will generate a custom Level 3 hdf file
+    '''
     hdfFile = phdf.SD(outdir+data.file,phdf.SDC.WRITE|phdf.SDC.CREATE) # Assign a few attributes at the file level
     hdfFile.author = 'JENSEN HUGHES'
     hdfFile.productionDate = time.strftime('%Y%j.%H%M',time.gmtime(time.time()))
@@ -179,6 +213,9 @@ def matchFilesToGeo(indir="E:/WildfireResearch/data/terra_hourly_activefires/",
                     geodir = "E:/WildfireResearch/data/terra_geolocation/",
                     outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/",
                     splitStr = '\\MOD14.A'):
+    ''' This function finds all data measurements where the geolocation data
+    of the satellite is also available.
+    '''
     files = glob.glob(indir+'/*.hdf')
     geo_files = glob.glob(geodir+'/*.hdf')
     res_files = glob.glob(outdir+'/*.hdf')
@@ -209,6 +246,9 @@ def splitDayAndNight(lats,lons,datas,names,times,
                      dayLowThresh=1.0,
                      dayUpThresh=13.0,
                      fileName=None):
+    ''' This function splits the data into day and night sections based on
+    lower and upper threshold times in hours of UTC.
+    '''
     localHour = np.array([time.localtime(s+timezone*3600).tm_hour for s in times])
     
     inds = np.where((localHour<dayUpThresh) & (localHour>dayLowThresh))
@@ -239,6 +279,9 @@ def remapUsingCustom(indir="E:/WildfireResearch/data/terra_hourly_activefires/",
                      splitStr = 'MOD14.A',
                      dayLowThresh=1.0,
                      dayUpThresh=13.0):
+    ''' This function will remap Level 2 MODIS data in indir to a custom Level
+    3 grid.
+    '''
 
     inputFiles, geoFiles, dates = matchFilesToGeo(indir=indir,geodir=geodir,outdir=outdir,splitStr=splitStr)
     
@@ -296,6 +339,8 @@ def remapUsingCustom(indir="E:/WildfireResearch/data/terra_hourly_activefires/",
     return day, night
 
 def loadCustomHdf(file,sdsname):
+    ''' This function will load a custom Level 3 product from an hdf file.
+    '''
     f = phdf.SD(file,phdf.SDC.READ)
     data = f.select(sdsname).get()
     latitudeL = float(f.attributes()['latitudeL'])
@@ -312,6 +357,9 @@ def loadCustomHdf(file,sdsname):
     return lat_grid, lon_grid, data, timeStamp
 
 def getTimeCustomHdf(file,timezone=0,dayLowThresh=1.0,dayUpThresh=13.0):
+    ''' This function will get the time stampe from a custom Level 3
+    product.
+    '''
     f = phdf.SD(file,phdf.SDC.READ)
     try:
         startTime = float(f.attributes()['minTimeStamp']) +timezone*3600
@@ -345,6 +393,7 @@ def getTimeCustomHdf(file,timezone=0,dayLowThresh=1.0,dayUpThresh=13.0):
 
     return startTime, endTime
 
+"""
 def queryTimeCustomHdf2(indir,qDT):
     queryTime = time.mktime(qDT.timetuple())+qDT.microsecond / 1E6
     files = glob.glob(indir+'/*.hdf')
@@ -372,11 +421,15 @@ def queryTimeCustomHdfbkup(qDT,
     file = files[ind]
     lat, lon, data = loadCustomHdf(file,sdsname)
     return lat, lon, data
+"""
     
 def queryTimeCustomHdf(qDT,
                        datadirs="E:/WildfireResearch/data/terra_hourly_activefires_jh/",
                        sdsname='FireMask',
                        timezone=0):
+    ''' This function will query the custom Level 3 hdf database for a
+    specific time.
+    '''
     queryTime = time.mktime(qDT.timetuple())+qDT.microsecond / 1E6
     
     if type(datadirs) is str:
@@ -412,6 +465,11 @@ def queryTimeCustomHdf(qDT,
     return lat, lon, data, timeStamp
 
 def updateTimeFileCustomHdf(indir,timezone=0):
+    ''' This function will generate a pickle file with all the filenames and
+    corresponding timestamps of custom hdf files in a directory. Loading all
+    the files to get the times takes much longer than just loading a pickle
+    file.
+    '''
     files = glob.glob(indir+'/*.hdf')
     times = []
     files2 = []
@@ -426,6 +484,11 @@ def updateTimeFileCustomHdf(indir,timezone=0):
     return times, outfile
 
 def loadTimeFileCustomHdf(indir):
+    ''' This function will load a pickle file with all the filenames and
+    corresponding timestamps of custom hdf files in a directory. If the
+    file does not exist, the updateTimeFileCustomHdf function will be run
+    to generate the pickle file.
+    '''
     if indir[-4:] == '.pkl':
         files = [indir]
     elif indir[-1] == '/':

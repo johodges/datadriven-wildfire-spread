@@ -13,6 +13,9 @@ import util_common as uc
 import os
 
 def coordinatesFromTile(tile):
+    ''' This function will return the longitude and latitude from a USGS
+    tilt in the format 'n000e000'
+    '''
     lat = float(tile[1:3])
     lon = float(tile[4:7])
     if tile[0] == 's':
@@ -22,42 +25,24 @@ def coordinatesFromTile(tile):
     return lat, lon
 
 def restrictContour(data,target_sz=250):
+    ''' This function will downsample a contour to the target size
+    '''
     current_sz = data.shape[0]
     restrictedData = zoom(data,target_sz/current_sz,order=1)
     return restrictedData
 
 def coordinatesToContour(data,lat,lon):
+    ''' This function will generate a meshgrid for latitude and longitude
+    '''
     [r,c] = data.shape
     latAxis = np.linspace(lat,lat-1.0,r)
     lonAxis = np.linspace(lon,lon+1.0,r)
     lonGrid, latGrid = np.meshgrid(lonAxis,latAxis)
     return latGrid, lonGrid
 
-"""
-def fillEmptyCoordinates(data):
-    [r,c] = data.shape
-    dataNan = data.copy()
-    dataNan[data == 0] = np.nan
-    r0mn = np.nanmin(dataNan[0,:])
-    r0mx = np.nanmax(dataNan[0,:])
-    c0mn = np.nanmin(dataNan[:,0])
-    c0mx = np.nanmax(dataNan[:,0])
-    if abs(c0mx-c0mn) > 0 and abs(r0mx-r0mn) > 0:
-        assert False, "Both column and row values are changing."
-    elif abs(r0mx-r0mn) == 0:
-        for i in range(0,r):
-            rowValue = np.nanmax(dataNan[i,:])
-            dataNan[i,:] = rowValue.copy()
-    elif abs(c0mx-c0mn) == 0:
-        for i in range(0,c):
-            colValue = np.nanmax(dataNan[:,i])
-            dataNan[:,i] = colValue.copy()
-    else:
-        assert False, "Did not find a valid region."
-    return dataNan
-"""
-
 def loadRawData(datadir,forceRead=False):
+    ''' This function will load the raw elevation data from USGS
+    '''
     files = [fn for fn in glob.glob(datadir+'*grd*') if not os.path.basename(fn).endswith('.pkl')]
     lats = []
     lons = []
@@ -118,10 +103,14 @@ def rawData2Map(datadir,lats,lons,datas):
     return tiles_lat, tiles_lon, tiles_data
 
 def dumpMapData(lat,lon,data,name):
+    ''' This function will dump an elevation map to a pickle file
+    '''
     uc.dumpPickle([data,lat,lon],name+'.pkl')
     return name+'.pkl'
 
 def loadMapData(name):
+    ''' This function will read an elevation map froma pickle file
+    '''
     dataLoad = uc.readPickle(name)
     data = dataLoad[0]
     lat = dataLoad[1]
@@ -130,6 +119,11 @@ def loadMapData(name):
 
 def queryElevation(
         filename='E:/WildfireResearch/data/usgs_elevation_30m/California.pkl'):
+    ''' This is the function which is used to query the database.
+    
+    NOTE: Since there is no dependence on time for elevation in this database,
+        the same values will always be returned.
+    '''
     data, lat, lon = loadMapData(filename)
     return lat, lon, data
     
