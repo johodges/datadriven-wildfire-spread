@@ -23,112 +23,16 @@
 #=========================================================================
 
 import numpy as np
-import pandas as pd
-import yaml
-#from util_common import tic, toc
-from collections import defaultdict
-import matplotlib.pyplot as plt
+import util_common as uc
 import tensorflow as tf
 import pickle
-import os
+import glob
+import generate_dataset as gd
+from generate_dataset import GriddedMeasurementPair
+import psutil
+import matplotlib.pyplot as plt
 
-def tic():
-    ''' tic: This function stores the current time to the microsecond level
-    
-        OUTPUTS:
-          old_time: float containing the current time to the microsecond level
-    '''
-    import datetime
-    old_time = datetime.datetime.now().time().hour*3600+datetime.datetime.now().time().minute*60+datetime.datetime.now().time().second+datetime.datetime.now().time().microsecond/1000000
-    return old_time
-
-def toc(old_time):
-    ''' toc: This function returns the amount of time since the supplied time
-    
-        INPUTS:
-          old_time: float containing previous time
-        
-        OUTPUTS:
-          dur: float containing time since previous time
-    '''
-    new_time = tic()
-    dur = new_time-old_time
-    return dur
-
-def read_scored_data(input_file,first_header='Output'):
-    ''' read_scored_data: This function reads scored data
-    
-        Inputs:
-          input_file: string containing path to score data.
-          first_header: header of score for first reference shape.
-        Outputs:
-          data: list containing scores for each reference shape.
-    '''
-    raw_data = pd.read_csv(input_file)
-    param_end = min([i for i, s in enumerate(raw_data.columns) if first_header in s])
-    loaded_params = raw_data.values[:,1:param_end]
-    loaded_scores = raw_data.values[:,param_end:]
-    params = []
-    scores = []
-    data = []
-    for i in range(0,len(loaded_params)):
-        params.append(np.reshape(loaded_params[i].T,(loaded_params.shape[1],1)))
-        scores.append(np.reshape(loaded_scores[i].T,(loaded_scores.shape[1],1)))
-        data.append([params[i],scores[i]])
-    return data
-
-def rearrange_data_tf(data):
-    ''' rearrange_data_tf: This function formats the input data into that
-        required as input to tensorflow.
-        
-        Inputs:
-          data: list of data from raw format
-        Outputs:
-          data_tf: tuple containing data in format for tensorflow
-    '''
-    xdim = len(data[0][0])
-    ydim = len(data[0][1])
-    
-    data_x = np.zeros((len(data),xdim))
-    data_y = np.zeros((len(data),ydim))
-    
-    for d in range(0,len(data)):
-        data_x[d,:] = np.reshape(data[d][0],(xdim,))
-        data_y[d,:] = np.reshape(data[d][1],(ydim,))
-    
-    data_tf = (data_x,data_y)
-    return data_tf
-
-def splitdata(data,test_number=None):
-    ''' splitdata: This function will split the data into test and training
-        sets.
-        
-        Inputs:
-          data: list of data from raw format
-          test_number: number of samples to withold for testing. If none, half
-            the data is used.
-        Outputs:
-          test_data: portion of input data for testing
-          training_data: portion of input data for training
-    '''
-    total_len = len(data)
-    
-    if test_number is None:
-        random_inds = np.array(np.round(np.random.rand(int(total_len/2),1)*total_len,decimals=0)-1,dtype=np.int64)
-    else:
-        random_inds = np.array(np.round(np.random.rand(test_number,1)*total_len,decimals=0)-1,dtype=np.int64)
-    random_inds = np.array(np.unique(random_inds),dtype=np.int64)
-    
-    test_data = []
-    for i in range(0,len(random_inds)):
-        test_data.append(data[random_inds[i]])
-    training_data = []
-    for i in range(0,total_len):
-        if i not in random_inds:
-            training_data.append(data[i])
-    return test_data, training_data
-
-def splitdata_tf(data,test_number=None):
+def splitdata_tf(data,test_number=None,fakeRandom=False):
     ''' splitdata: This function will split the data into test and training
         sets.
         
@@ -140,6 +44,8 @@ def splitdata_tf(data,test_number=None):
           test_data: portion of input data for testing
           training_data: portion of input data for training
     '''
+    if fakeRandom:
+        np.random.seed(1)
     total_len = data[0].shape[0]
     
     if test_number is None:
@@ -192,7 +98,7 @@ def import_wb(file,sess):
           ydim: number of outputs from neural network
     '''
     f = open(file,'rb')
-    w2, b2, af = pickle.load(f)
+    w2, b2, af, epoch = pickle.load(f)
     neurons = []
     dims = w2[0].shape[0]
     ydim = w2[-1].shape[1]
@@ -205,11 +111,18 @@ def import_wb(file,sess):
         sess.run(w[i].assign(w2[i]))
     for i in range(0,len(b2)):
         sess.run(b[i].assign(b2[i]))
-    return w,b,af,dims,ydim
+    return w,b,af,dims,ydim,epoch
 
-def tensorflow_network(data,num=1001,neurons=None,test_number=None,ns='',
-                       train=True,learning_rate=0.00001,
-                       activation_function='relu'):
+def import_data(file):
+    f = open(file,'rb')
+    test_data, training_data = pickle.load(f)
+    return test_data, training_data
+
+def tensorflow_network(data,num=1001,neurons=None,test_number=None,ns='',ds='',
+                       train=True,learning_rate=0.00001,continue_train=True,
+                       fakeRandom=False,
+                       activation_function='relu',
+                       comparison_function='rmse'):
     ''' tensorflow_network: This function defines a tensorflow network. It can
         be used to train or test the network.
         
@@ -255,19 +168,26 @@ def tensorflow_network(data,num=1001,neurons=None,test_number=None,ns='',
         assert data[0].shape[0] == data[1].shape[0], 'data[0].shape[0] should be the same as data[1].shape[0]'
     elif type(data) is np.ndarray and not train:
         assert len(data.shape) == 2, 'len(data.shape) should be 2'
+    elif continue_train and data is None:
+        print("Loading data from file %s"%(ds+'data.out'))
     else:
+        #print("Did not recognize input format. See documentation.")
         assert False, 'Did not recognize input format. See documentation.'
-        
+    
+    if glob.glob(ns+'model.pkl') and glob.glob(ds+'data.out') and continue_train and train:
+        continue_train = True
+    else:
+        continue_train = False
     # Start tensorflow session
     sess = tf.Session()
     
-    if train:
+    if train and not continue_train:
         # Determine input and output layer dimensions
         dims = data[0].shape[1]
         ydim = data[1].shape[1]
         
         # Split and arrange data
-        test_data, training_data = splitdata_tf(data,test_number=test_number)
+        test_data, training_data = splitdata_tf(data,test_number=test_number,fakeRandom=fakeRandom)
         
         # Define layers
         if neurons is None:
@@ -281,9 +201,16 @@ def tensorflow_network(data,num=1001,neurons=None,test_number=None,ns='',
         
         # Weight initializations
         w1,b1 = init_network(neurons)
-    else:
+        old_epoch = 0
+    elif continue_train and train:
         # Import saved network parameters
-        w1,b1,activation_function,dims,ydim = import_wb("./"+ns+"model.pkl",sess)
+        w1,b1,activation_function,dims,ydim, old_epoch = import_wb("./"+ns+"model.pkl",sess)
+        test_data, training_data = splitdata_tf(data,test_number=test_number,fakeRandom=fakeRandom)
+        #test_data, training_data = import_data("./"+ds+"data.out")
+        w2,b2 = extract_wb(w1,b1,sess)
+    elif not train:
+        # Import saved network parameters
+        w1,b1,activation_function,dims,ydim, old_epoch = import_wb("./"+ns+"model.pkl",sess)
         w2,b2 = extract_wb(w1,b1,sess)
         if type(data) is tuple:
             test_data = data[0]
@@ -308,28 +235,39 @@ def tensorflow_network(data,num=1001,neurons=None,test_number=None,ns='',
         updates = tf.train.GradientDescentOptimizer(learning_rate).minimize(cost)
         
         # Initialize everything else
-        init = tf.global_variables_initializer()
-        sess.run(init)
-        
+        if not continue_train:
+            init = tf.global_variables_initializer()
+            sess.run(init)
+            #with open("./"+ds+"data.out",'wb') as f:
+            #    pickle.dump([test_data,training_data],f)
         # Perform num training epochs
         for epoch in range(num):
             sess.run(updates, feed_dict={X: training_data[0], y: training_data[1]})
             if epoch % int(num/10) == 0:
-                #train_accuracy = np.mean(abs(training_data[1]-sess.run(yhat, feed_dict={X: training_data[0]}))**2)**0.5
-                #test_accuracy  = np.mean(abs(test_data[1]-sess.run(yhat, feed_dict={X: test_data[0]}))**2)**0.5
-                train_accuracy = np.mean(abs(training_data[1]-sess.run(yhat, feed_dict={X: training_data[0]})))
-                test_accuracy  = np.mean(abs(test_data[1]-sess.run(yhat, feed_dict={X: test_data[0]})))
+                if comparison_function == 'rmse':
+                    train_accuracy = np.mean(abs(training_data[1]-sess.run(yhat, feed_dict={X: training_data[0]}))**2)**0.5
+                    test_accuracy  = np.mean(abs(test_data[1]-sess.run(yhat, feed_dict={X: test_data[0]}))**2)**0.5
+                if comparison_function == 'mae':
+                    train_accuracy = np.mean(abs(training_data[1]-sess.run(yhat, feed_dict={X: training_data[0]})))
+                    test_accuracy  = np.mean(abs(test_data[1]-sess.run(yhat, feed_dict={X: test_data[0]})))
+                elif comparison_function == 'sae':
+                    train_accuracy = np.sum(abs(training_data[1]-sess.run(yhat, feed_dict={X: training_data[0]})))/training_data[1].shape[0]
+                    test_accuracy  = np.sum(abs(test_data[1]-sess.run(yhat, feed_dict={X: test_data[0]})))/test_data[1].shape[0]
                 #print(test_data[1][0])
                 #print(sess.run(yhat, feed_dict={X: test_data[0]})[0])
                 print("Epoch = %d, train rmse = %.2f, test rmse = %.2f"
-                      % (epoch + 1, train_accuracy, test_accuracy))
+                      % (old_epoch+epoch + 1, train_accuracy, test_accuracy))
         
-        # Save network parameters using pickle
-        save_path = "./"+ns+"model.pkl"
-        with open(save_path,'wb') as f:
-            w2,b2 = extract_wb(w1,b1,sess)
-            pickle.dump([w2,b2,activation_function],f)
-            
+                # Save network parameters using pickle
+                if ns[0:2] == "..":
+                    save_path = "./"+ns+"model.pkl"
+                else:
+                    save_path = ns+"model.pkl"
+                    
+                with open(save_path,'wb') as f:
+                    w2,b2 = extract_wb(w1,b1,sess)
+                    pickle.dump([w2,b2,activation_function,epoch+old_epoch+1],f)
+                    
         # Generate test prediction
         test_prediction = sess.run(yhat, feed_dict={X: test_data[0]})
         
@@ -348,117 +286,6 @@ def tensorflow_network(data,num=1001,neurons=None,test_number=None,ns='',
         
         # Return training and test datas, path to network parameters, test predictions
         return test_prediction, test_data
-    
-def apply_weights(data,weights):
-    ''' apply_weights: This function will apply weights to scored data
-        
-        Inputs:
-          data: list of data from raw format
-          weights: numpy array of weights
-          
-        Outputs:
-          w_scores: numpy array of weighted scores
-    '''
-    w_scores = []
-    for i in range(0,len(data)):
-        score = np.reshape(data[i][1],(3,int(data[i][1].shape[0]/3)))
-        w_scores.append(np.reshape(np.multiply(score,weights),(score.shape[1]*3,)))
-    w_scores = np.array(w_scores)
-    return w_scores
-
-def scaled_scores(data,args=defaultdict(bool)):
-    ''' scaled_scores: This function converts raw scores to percentiles
-        
-        Inputs:
-          data: list of data from raw format
-          args: defaultdict() with criteria and datarefs
-          
-        Outputs:
-          data_scaled: percentile scores
-          data_for_weights: separate data format for weight estimation
-          scalefactors: minimums and maximums to convert percentiles to raw
-            scores
-    '''
-    
-    # Extract criteria and datarefs from arguments
-    if args['criteria'] == False:
-        criteria = ['DoG','Bif','L2','Li','L2-*','Li-*']
-    else:
-        criteria = args['criteria']
-    if args['datarefs'] == False:
-        datarefs = ['P0','P1','P2']
-    else:
-        datarefs = args['datarefs']
-    total_criteria = len(criteria)
-    total_datarefs = len(datarefs)
-    
-    # Scores to scoretable
-    raw_scores = []
-    for i in range(0,len(data)):
-        raw_score = np.reshape(data[i][1],(total_datarefs,int(data[i][1].shape[0]/total_datarefs)))
-        raw_scores.append(raw_score)
-    
-    # Arrange scores
-    arranged_scores = []
-    for i in range(0,len(raw_scores)):
-        for j in range(0,raw_scores[i].shape[0]):
-            arranged_scores.append(raw_scores[i][j,:])
-    arranged_scores = np.array(arranged_scores).T
-    scaled_scores = arranged_scores.copy()
-
-    # Determine scalefactors    
-    scalefactors = []
-    for i in range(0,total_criteria):
-        mn = min(scaled_scores[i,:])
-        mx = max(scaled_scores[i,:])
-        scaled_scores[i,:]= (scaled_scores[i,:]-mn)/(mx-mn)
-        scalefactors.append([mn,mx])
-    
-    # Rearrange data to format for weight estimation
-    data_for_weights = []
-    for i in range(0,arranged_scores.shape[1]):
-        scaled_tmp = np.reshape(scaled_scores[:,i],(scaled_scores[:,i].shape[0],1))
-        raw_tmp = np.reshape(arranged_scores[:,i],(arranged_scores[:,i].shape[0],1))
-        data_for_weights.append([raw_tmp,scaled_tmp])
-    
-    # Calculate data percentiles
-    data_scaled = []
-    for i in range(0,len(data)):
-        scaled_tmp = np.concatenate((scaled_scores[:,3*i],scaled_scores[:,3*i+1],scaled_scores[:,3*i+2]))
-        scaled_tmp = np.reshape(scaled_tmp,(len(scaled_tmp),1))
-        data_scaled.append([data[i][0],scaled_tmp])
-    
-    return data_scaled, data_for_weights, scalefactors
-
-def linear_weights(data_scaled):
-    ''' linear_weights: This function calculates optimal weights using linear
-        regression.
-        
-        Inputs:
-          data_scaled: list of data from raw format
-          
-        Outputs:
-          weights: numpy array containing weights to convert raw scores to
-            scaled scores
-    '''
-    
-    # Reorganize data
-    scores = []
-    for i in range(0,len(data_scaled)):
-        scores.append(data_scaled[i][1])
-    scores = np.reshape(np.array(scores),(len(data_scaled),data_scaled[0][1].shape[0])).T
-    raw_scores = []
-    for i in range(0,len(data_scaled)):
-        raw_scores.append(data_scaled[i][0])
-    raw_scores = np.reshape(np.array(raw_scores),(len(data_scaled),data_scaled[0][0].shape[0])).T
-    
-    # Specify design scores
-    design_scores = np.mean(scores,axis=0)*1.0
-    
-    # Perform linear regression
-    weights,residuals,rank,s = np.linalg.lstsq(raw_scores.T,design_scores)
-    
-    return weights
 
 def init_weights(shape, stddev=0.1):
     ''' init_weights: This function creates a tensorflow variable of specified
@@ -569,232 +396,267 @@ def scale_datay(data):
         dscaled = (d[1][:,0]-params_min)/(params_max-params_min)
         data2.append([np.array(d[0]),np.reshape(dscaled,(len(dscaled),))])
     return data2, [params_min,params_max]
+    
+def rearrangeDataset(datas,debugPrint=False,svdInputs=False,k=25):
+    
+    
+    allInputs = []
+    allOutputs = []
+    for i in range(0,len(datas)):
+        if psutil.virtual_memory()[2] < 80.0:
+            data = datas[i]
+            inputs = []
+            outputs = []
+            nanError = False
+            nanKey = ''
+            for key in data.__dict__.keys():
+                if "In_" in key:
+                    d = getattr(data,key)
+                    sz = np.shape(d)
+                    d = np.reshape(d,(sz[0]*sz[1],))
+                    if len(np.where(np.isnan(d))[0]) > 0:
+                        #print(key)
+                        #nanError = True
+                        if np.isnan(np.nanmin(d)):
+                            nanError = True
+                            nanKey = nanKey+key+", "
+                        d[np.where(np.isnan(d))[0]] = np.nanmin(d)
+                    if svdInputs:
+                        d = np.reshape(d,(sz[0],sz[1]))
+                        d = im2vector(d,k=k)
+                    if d is not None:
+                        inputs.extend(d)
+                    else:
+                        nanError = True
+                if "Out_" in key:
+                    d = getattr(data,key)
+                    sz = np.shape(d)
+                    d = np.reshape(d,(sz[0]*sz[1],))
+                    if len(np.where(np.isnan(d))[0]) > 0:
+                        #print(key)
+                        #nanError = True
+                        if np.isnan(np.nanmin(d)):
+                            nanError = True
+                            nanKey = nanKey+key+", "
+                        d[np.where(np.isnan(d))[0]] = np.nanmin(d)
+                    if svdInputs:
+                        d = np.reshape(d,(sz[0],sz[1]))
+                        d = im2vector(d,k=k)
+                    outputs.extend(d)
+            inputs = np.array(inputs)
+            outputs = np.array(outputs)
+            if not nanError:
+                allInputs.append(inputs)#[0:5000])
+                allOutputs.append(outputs)
+            else:
+                dataTime = data.strTime()[0]
+                if debugPrint:
+                    print("nanError at: %s for keys: %s"%(dataTime,nanKey))
+        else:
+            print("Not enough memory to reshape.")
+    print(np.shape(allInputs),np.shape(allOutputs))
+    newDatas = (np.array(allInputs),np.array(allOutputs))
+    return newDatas
 
-def percentile2scoretable(percentile, args=defaultdict(bool)):
-    ''' percentile2scoretable: This function rearranges a list of percentiles
-        into a scoretable
-        
-        Inputs:
-          percentile: list of percentiles
-          args: defaultdict() with datarefs
-        
-        Outputs:
-          scoretable: list of scoretables
-    '''
+def rearrangeDatasetAF(datas,debugPrint=False,svdInputs=False,k=25):
     
-    # Extract arguments
-    if args['datarefs'] == False:
-        datarefs = ['P0','P1','P2']
-    else:
-        datarefs = args['datarefs']
-    total_datarefs = len(datarefs)
     
-    # Reshape data
-    sz = np.shape(percentile)
-    scoretable = []
-    for i in range(0,sz[0]):
-        scoretable.append(np.reshape(percentile[i],(total_datarefs,int(sz[1]/total_datarefs))))
+    allInputs = []
+    allOutputs = []
+    for i in range(0,len(datas)):
+        if psutil.virtual_memory()[2] < 90.0:
+            data = datas[i]
+            inputs = []
+            outputs = []
+            nanError = False
+            nanKey = ''
+            for key in data.__dict__.keys():
+                if "In_FireMask" in key:
+                    d = getattr(data,key)
+                    sz = np.shape(d)
+                    d = np.reshape(d,(sz[0]*sz[1],))
+                    if len(np.where(np.isnan(d))[0]) > 0:
+                        #print(key)
+                        #nanError = True
+                        if np.isnan(np.nanmin(d)):
+                            nanError = True
+                            nanKey = nanKey+key+", "
+                        d[np.where(np.isnan(d))[0]] = np.nanmin(d)
+                    if svdInputs:
+                        d = np.reshape(d,(sz[0],sz[1]))
+                        d = im2vector(d,k=k)
+                    if d is not None:
+                        inputs.extend(d)
+                    else:
+                        nanError = True
+                if "Out_FireMask" in key:
+                    d = getattr(data,key)
+                    sz = np.shape(d)
+                    d = np.reshape(d,(sz[0]*sz[1],))
+                    if len(np.where(np.isnan(d))[0]) > 0:
+                        #print(key)
+                        #nanError = True
+                        if np.isnan(np.nanmin(d)):
+                            nanError = True
+                            nanKey = nanKey+key+", "
+                        d[np.where(np.isnan(d))[0]] = np.nanmin(d)
+                    if svdInputs:
+                        d = np.reshape(d,(sz[0],sz[1]))
+                        d = im2vector(d,k=k)
+                    outputs.extend(d)
+            inputs = np.array(inputs)
+            outputs = np.array(outputs)
+            if not nanError:
+                allInputs.append(inputs)#[0:5000])
+                allOutputs.append(outputs)
+            else:
+                dataTime = data.strTime()[0]
+                if debugPrint:
+                    print("nanError at: %s for keys: %s"%(dataTime,nanKey))
+        else:
+            print("Not enough memory to reshape.")
     
-    return scoretable
+    print(np.shape(allInputs),np.shape(allOutputs))
+    newDatas = (np.array(allInputs),np.array(allOutputs))
+    return newDatas
 
-def scoretable2score(scoretable, args=defaultdict(bool)):
-    ''' scoretable2score: This function calculates aggregate from scoretable
-        
-        Inputs:
-          scoretable: list of scoretables
-          args: defaultdict() with agg_type
-        
-        Outputs:
-          score: list of scoretables with aggregate
-    '''
-    # Extract arguments
-    if args['agg_type'] == False:
-        agg = 'Sum'
-    else:
-        agg = args['agg_type']
-    
-    # Loop through scoretables
-    score = []
-    sz = np.shape(scoretable[0])
-    for i in range(0,len(scoretable)):
-        score_tmp = np.zeros((sz[0]+1,sz[1]+1))
-        score_tmp[0:-1,1:] = scoretable[i]
-        if agg == 'Mean':
-            score_tmp[0:-1,0] = np.mean(scoretable[i],axis=1)
-            score_tmp[-1,1:] = np.mean(scoretable[i],axis=0)
-            score_tmp[-1,0] = np.mean(scoretable[i])
-        if agg == 'Sum':
-            score_tmp[0:-1,0] = np.sum(scoretable[i],axis=1)
-            score_tmp[-1,1:] = np.sum(scoretable[i],axis=0)
-            score_tmp[-1,0] = np.sum(scoretable[i])
-        score.append(score_tmp)
-    return score
+def im2vector(img,k=10):
+    data = []
+    try:
+        u,s,v = np.linalg.svd(img)
+        u = np.reshape(u[:,:k],(u.shape[0]*k,))
+        v = np.reshape(v[:k,:],(v.shape[0]*k,))
+        s = s[:k]
+        data.extend(u)
+        data.extend(v)
+        data.extend(s)
+        return np.array(data)
+    except np.linalg.LinAlgError:
+        return None
 
-def scoretable2pressure(scoretable,col=0,args=defaultdict(bool)):
-    ''' scoretable2pressure: This function calculates aggregate for each
-        reference shape
-        
-        Inputs:
-          scoretable: list of scoretables
-          col: column to use for aggregate
-          args: defaultdict() with agg_type
-        
-        Outputs:
-          score: list of scoretables with aggregate
-    '''
-    # Extract arguments
-    if args['agg_type'] == False:
-        agg = 'Sum'
-    else:
-        agg = args['agg_type']
-    
-    # Loop through scoretables
-    pressure_scores = []
-    sz = np.shape(scoretable[0])
-    for i in range(0,len(scoretable)):
-        score_tmp = np.zeros((sz[0]+1,sz[1]+1))
-        score_tmp[0:-1,1:] = scoretable[i]
-        if agg == 'Mean':
-            score_tmp[0:-1,0] = np.mean(scoretable[i],axis=1)
-        if agg == 'Sum':
-            score_tmp[0:-1,0] = np.sum(scoretable[i],axis=1)
-        pressure_scores.append([score_tmp[0,col],score_tmp[1,col],score_tmp[2,col]])
-    return pressure_scores
+def reconstructImg(img,k=10):
+    sz = int((np.shape(img)[0]-k)/(2*k))
+    u = np.reshape(img[0:sz*k],(sz,k))
+    v = np.reshape(img[sz*k:2*sz*k],(k,sz))
+    s = img[2*sz*k:]
+    data = np.dot(u,np.dot(np.diag(s),v))
+    return data
 
-def allscores2overall(allscore,col=0):
-    ''' allscores2overall: This function calculates the overall score
-        
-        Inputs:
-          allscore: list of scoretables
-          col: column to use for aggregate
-        
-        Outputs:
-          score: list of overall scores
-    '''
-    score = []
-    for s in allscore:
-        score.append(s[-1,col])
-    return score
-
-def rescale_scores(allscores,scalefactors,weights,args=defaultdict(bool)):
-    ''' rescale_scores: This function re-scales scores
-        
-        Inputs:
-          allscores: list of scoretables
-          scalefactors: list with scale factors
-          weights: numpy array of weights
-          args: defaultdict() with datarefs
-          
-        Outputs:
-          rescale_scores: list of rescaled scoretables
-    '''
-    
-    # Extract arguments
-    if args['datarefs'] == False:
-        datarefs = ['P0','P1','P2']
-    else:
-        datarefs = args['datarefs']
-    total_datarefs = len(datarefs)
-    
-    # Loop through scoretables
-    rescale_scores = []
-    for j in range(0,len(allscores)):
-        scores = allscores[j]
-        scores_tmp = np.reshape(scores,(total_datarefs,int(len(scores)/total_datarefs)))
-        for i in range(0,len(scalefactors)):
-            scores_tmp[:,i] = scores_tmp[:,i]*(scalefactors[i][1]-scalefactors[i][0])+scalefactors[i][0]
-            scores_tmp[:,i] = np.multiply(scores_tmp[:,i],weights[i])
-        scores_tmp = np.reshape(scores_tmp,((len(scores),)))
-        rescale_scores.append(scores_tmp)
-    return rescale_scores
-
-def network_weight_estimate(data,ns,tn=10,pf=True):
-    neu = [30]
-    lr = 0.000001
-    num = 10001
-    t1 = tic()
-    train_data, test_data,_,tp = tensorflow_network(data,ns=ns,neurons=neu,num=num,test_number=tn,learning_rate=lr)
-    print("network_weight_estimate time:",toc(t1))
-    if pf:
-        plt.figure()
-        plt.scatter(test_data[1][0],tp[0])
-        plt.plot(test_data[1][0],test_data[1][0])
-        plt.title('Weight Estimate (TensorFlow)')
-    
-def network_score_from_param_train(data,ns,tn=10):
-    neu = [30,30,30]
-    lr = 0.00001
-    num = 10001
-    af='relu'
-    t1 = tic()
-    train_data, test_data, save_path, tp2 = tensorflow_network(data,ns=ns,neurons=neu,num=num,test_number=tn,learning_rate=lr,activation_function=af)
-    print("Tensor flow param->score time:",toc(t1))
+def network_wildfire_train(data,ns,ds,neu=[100,100,100],tn=10,num=11,lr=10**-7):
+    af='sigmoid'
+    cf='sae'
+    #for n in neu:
+    #    ns = ns+'_'+str(n)
+    t1 = uc.tic()
+    train_data, test_data, save_path, tp2 = tensorflow_network(
+            data,ns=ns,neurons=neu,num=num,test_number=tn,learning_rate=lr,
+            activation_function=af,comparison_function=cf,
+            fakeRandom=True,ds=ds)
+    print("Tensor flow param->score time:",uc.toc(t1))
     plt.figure()
     plt.plot(test_data[1][0],test_data[1][0])
     plt.xlabel('True Scaled Score')
     plt.ylabel('Pred Scaled Score')
     plt.title('Score Estimate (TensorFlow)')
     return test_data
-    
-def network_score_from_param_test(data,ns):
-    t1 = tic()
+
+def network_wildfire_test(data,ns):
+    t1 = uc.tic()
     test_prediction, test_data2 = tensorflow_network(data,train=False,ns=ns)
-    print("Tensor flow retest param->score time:",toc(t1))
+    print("Tensor flow retest param->score time:",uc.toc(t1))
     plt.figure(figsize=(12,8))
-    plt.plot(data[1][0],data[1][0])
-    plt.xlabel('True Scaled Score')
-    plt.ylabel('Pred Scaled Score')
-    plt.title('Score Estimate (TensorFlow)')
-    for i in range(0,len(test_prediction)):
-        plt.scatter(data[1][i],test_prediction[i])
+    d = data[1][0].copy()
+    d[d<7] = 0
+    d[d>=7] = 1
+    plt.plot(d,test_prediction[0])
+    plt.xlabel('Measured Active Fire Index')
+    plt.ylabel('Predicted Active Fire Index')
+    #plt.title('Score Estimate (TensorFlow)')
+    #for i in range(0,len(test_prediction)):
+    #    plt.scatter(d[i],test_prediction[i])
+    return test_prediction
 
 if __name__ == "__main__":
-  
+    #import generate_dataset as gd
+    #from generate_dataset import GriddedMeasurementPair
+    #indir = ['C:/Users/JHodges/Documents/wildfire-research/output/GoodCandidateComparison/']
+    #outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/NetworkTest/'
+    
+    indir = ['../networkData/20180213/']
+    outdir = '../networkData/output/'
+    
     # Define which parametric study to load
-    study2use = 0
+    study2use = 3
+    neu = [100]
+    num = 11
+    lr = 10**-7
+    ns = outdir+'test'
+    ds = indir[0]
+    for n in neu:
+        ns = ns+'_'+str(n)
+    
+    svdInputs = False
+    k = 25
+    
+    if svdInputs:
+        file = ds+'dataSvd.out'
+    else:
+        file = ds+'data.out'
+    if not glob.glob(file):
+        datas = gd.loadCandidates(indir)
+        if psutil.virtual_memory()[2] < 60:
+            with open(ds+'dataraw.out','wb') as f:
+                pickle.dump(datas,f)
+        else:
+            print("Not enough memory available.")
+        newDatas = rearrangeDataset(datas,svdInputs=svdInputs,k=k,debugPrint=True)
+        with open(file,'wb') as f:
+            pickle.dump(newDatas,f)
+    else:
+        with open(file,'rb') as f:
+            print("Loading data from %s"%(file))
+            newDatas = pickle.load(f)
     
     # Choose what networks to train
     type_one = True
     type_two = True
     
-    # Load parametric study information
-    in_params = yaml.load(open('../data-sample/default.yaml','r'))
-    if study2use == 0:
-        logname = 'network1'
-        input_file = '../data-sample/network1'
-        plot_name = 'network1_'
-    if study2use == 1:
-        logname = 'network2'
-        input_file = '../data-sample/network2'
-        plot_name = 'network2_'
-    if study2use == 2:
-        logname = 'network3'
-        input_file = '../data-sample/network3'
-        plot_name = 'network3_'
-        
-    args = defaultdict(bool,in_params['args'])
+    test_data = network_wildfire_train(newDatas,ns,ds,tn=5,neu=neu,num=num,lr=lr)
+    test_prediction = network_wildfire_test(test_data,ns)
     
-    # Read scored data
-    data = read_scored_data(input_file+'.csv')
+    test_prediction_rm = []
+    dataSize = int(test_prediction[0].shape[0]**0.5)
     
-    # Scale data based on set of simulations
-    data_scaled, data_for_weights, scalefactors = scaled_scores(data,args=args)
-    data_scaled = rearrange_data_tf(data_scaled.copy())
-    
-    # Determine weights solving linear system
-    weights = linear_weights(data_for_weights)
-    data_for_weights = rearrange_data_tf(data_for_weights.copy())
-    
-    # Calculate weighted scores
-    data_weighted = apply_weights(data,weights)
-    
-    # Use network to learn how to scale scores
 
-    if type_one:
-        network_weight_estimate(data_for_weights,input_file+'weights',tn=5)
-        
-    if type_two:
-        test_data = network_score_from_param_train(data_scaled,input_file+'scores',tn=5)
-        network_score_from_param_test(test_data,input_file+'scores')
-        
-        
+    
+    
+    toPlot = 2
+    
+    basenumber = 5
+    
+    if svdInputs:
+        svdData = test_data[0][toPlot].copy()
+        svdData = svdData[0:int(len(svdData)/basenumber)]
+        inData = reconstructImg(svdData,k=k)
+        outData = reconstructImg(test_prediction[toPlot],k=k)
+        valData = reconstructImg(test_data[1][toPlot].copy(),k=k)
+    else:
+        inData = np.reshape(test_data[0][toPlot][0:2500],(dataSize,dataSize))
+        outData = np.reshape(test_prediction[toPlot],(dataSize,dataSize))
+        valData = np.reshape(test_data[1][toPlot][0:2500],(dataSize,dataSize))
+    plt.figure(figsize=(12,8))
+    plt.imshow(inData,cmap='jet')
+    #plt.contourf(theData,cmap='jet',levels=np.linspace(0,1,10))
+    plt.colorbar()
+    
+    plt.figure(figsize=(12,8))
+    plt.imshow(outData,cmap='jet')
+    #plt.contourf(test_prediction_rm[toPlot],cmap='jet',levels=np.linspace(0,1,10))
+    plt.colorbar()
+    
+    #theData = np.reshape(test_data[1][toPlot][0:2500],(dataSize,dataSize))
+    plt.figure(figsize=(12,8))
+    plt.imshow(valData,cmap='jet')
+    #plt.contourf(theData,cmap='jet',levels=np.linspace(0,1,10))
+    plt.colorbar()
+    

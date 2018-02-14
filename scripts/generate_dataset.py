@@ -312,6 +312,7 @@ class GriddedMeasurementPair(object):
         inNames, outNames = self.getDataNames()
         inTime, outTime = self.strTime()
         
+        
         totalPlots = np.ceil((float(inNum)+float(outNum))**0.5)
         colPlots = totalPlots
         rowPlots = np.ceil((float(inNum)+float(outNum))/colPlots)
@@ -337,6 +338,8 @@ class GriddedMeasurementPair(object):
         ymax = np.round(np.max(self.latitude),1)
         yticks = np.linspace(ymin,ymax,int(round((ymax-ymin)/0.1)+1))
 
+
+
         names = inNames+outNames
         for i in range(0,len(names)):
             key = names[i]
@@ -350,24 +353,25 @@ class GriddedMeasurementPair(object):
             plt.ylabel('Latitude',fontsize=fntsize)
             plt.title(key,fontsize=fntsize)
 
-            if 'FireMask' in key:
-                clim = np.linspace(0,9,10)
-                label = 'AF'
-            elif 'Elevation' in key:
-                clim = np.linspace(-1000,5000,7)
-                label = 'Elev [m]'
-            elif 'WindX' in key:
-                clim = np.linspace(-6,6,13)
-                label = 'u [m/s]'
-            elif 'WindY' in key:
-                clim = np.linspace(-6,6,13)
-                label = 'v [m/s]'
-            elif 'VegetationIndex' in key:
-                clim = np.linspace(-4000,10000,8)
-                label = 'NVDIx1000'
+            if clim is None:
+                if 'FireMask' in key:
+                    clim = np.linspace(0,9,10)
+                    label = 'AF'
+                elif 'Elevation' in key:
+                    clim = np.linspace(-1000,5000,7)
+                    label = 'Elev [m]'
+                elif 'WindX' in key:
+                    clim = np.linspace(-6,6,13)
+                    label = 'u [m/s]'
+                elif 'WindY' in key:
+                    clim = np.linspace(-6,6,13)
+                    label = 'v [m/s]'
+                elif 'VegetationIndex' in key:
+                    clim = np.linspace(-4000,10000,8)
+                    label = 'NVDIx1000'
             else:
-                clim = None
                 label = ''
+                
             img = ax.contourf(self.longitude,self.latitude,getattr(self,key),levels=clim,cmap=cmap)
             img_cb = plt.colorbar(img,ax=ax,label=label)
 
@@ -386,7 +390,7 @@ class GriddedMeasurementPair(object):
 
         
 
-def extractCandidates(dataStart,dataEnd,inKeys,outKeys,matches,nhood=[50,50]):
+def extractCandidates(dataStart,dataEnd,inKeys,outKeys,matches,nhood=[25,25]):
     ''' This function will extract a list of match points from a list of start
     data and a list of end data and store it as a list of
     GriddedMeasurementPairs
@@ -413,24 +417,6 @@ def extractCandidates(dataStart,dataEnd,inKeys,outKeys,matches,nhood=[50,50]):
     if len(datas) == 0:
         datas = None
     return datas
-
-"""
-def extractCandidates2(dataStart,dataEnd,matches,nhood=[50,50]):
-    bounds = dataStart.data.shape
-    
-    datas = []
-    for i in range(0,matches.shape[0]):
-        rowLow = matches[i][0]-nhood[0]
-        rowUp = matches[i][0]+nhood[0]
-        colLow = matches[i][1]-nhood[1]
-        colUp = matches[i][1]+nhood[1]
-        if (rowLow > 0) and (rowUp < bounds[0]) and (colLow > 0) and (colUp < bounds[1]):
-            data = GriddedMeasurementPair(
-                    dataStart,dataEnd,inKeys,outKeys,
-                    bounds=[rowLow,rowUp,colLow,colUp])
-            datas.append(data)
-    return datas
-"""
 
 def compareGriddedMeasurement(data1,data2):
     ''' This function checks if 2 GriddedMeasurements have the same header
@@ -673,11 +659,44 @@ def loadCandidates(indirs):
             indir = indir+'/'
         files.extend(glob.glob(indir+'*.pkl'))
     
+    memoryError = False
     datas = []
     for file in files:
-        data = uc.readPickle(file)
-        if data is not None:
-            datas.extend(data)
+        mem = psutil.virtual_memory()[2]
+        if mem < 60.0:
+            data = uc.readPickle(file)
+            if data is not None:
+
+                for i in range(0,len(data)):
+                    for key in data[i].__dict__.keys():
+                        d = getattr(data[i],key)
+                        toMod = True
+                        if 'FireMask' in key:
+                            d = d-6
+                            dmin = 0
+                            dmax = 3
+                        elif 'Elevation' in key:
+                            dmin = -600
+                            dmax = 4200
+                        elif 'VegetationIndex' in key:
+                            dmin = 0
+                            dmax = 10000
+                        elif 'Wind' in key:
+                            dmin = -12
+                            dmax = 12
+                        else:
+                            toMod = False
+                        if toMod:
+                            d[d < dmin] = dmin
+                            d[d >= dmax] = dmax
+                            d = (d-dmin)/(dmax-dmin)
+                            setattr(data[i],key,d)
+                datas.extend(data)
+        else:
+            memoryError = True
+    if memoryError:
+        print("Memory is full, re-run the loading software")
+        
     return datas
 
 if __name__ == "__main__":
@@ -692,7 +711,7 @@ if __name__ == "__main__":
     '''
     
     
-    case = 6
+    case = 8
     
     if case == 0:
         tim = uc.tic()
@@ -923,7 +942,7 @@ if __name__ == "__main__":
         basetime = '2016001'
         asosTimeRange = dt.timedelta(days=0,hours=12,minutes=0)
         asosResolution = 111
-        outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/GoodCandidateComparison/'
+        outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/nhood_25_25/'
         ns = "DatabaseQuery"
         dataNames = ['FireMaskHourlyTA','Elevation','WindX','WindY','VegetationIndexA']
         inKeys = ['FireMaskHourlyTA','Elevation','WindX','WindY','VegetationIndexA']
@@ -932,7 +951,7 @@ if __name__ == "__main__":
         candidates = []
         oldData = None
         toPlot = False
-        for i in range(0,2000): #8
+        for i in range(0,3000): #8
             mem = psutil.virtual_memory()[2]
             if mem < 90.0:
                 queryTime = time.mktime(time.strptime(basetime+'15','%Y%j%H'))+(3600*6)*float(i)
@@ -950,7 +969,7 @@ if __name__ == "__main__":
                                                   asosResolution=asosResolution,
                                                   queryTimeRange=[0],
                                                   closest=True)
-                            dataExtract = extractCandidates(datas2,[dataOut],inKeys,outKeys,coordinateMatches,nhood=[25,25])
+                            dataExtract = extractCandidates(datas2,[dataOut],inKeys,outKeys,coordinateMatches,nhood=[15,15])
                         else:
                             print("no Candidates on time %s"%(queryTimestr))
                             dataExtract = None
@@ -995,4 +1014,87 @@ if __name__ == "__main__":
         datas = loadCandidates(indir)
         
         
-        
+    if case == 8:
+        #import matplotlib
+        #matplotlib.use('agg')
+        #import matplotlib.pyplot as plt
+        tim = uc.tic()
+        #queryDateTime = dt.datetime(year=2017,month=12,day=4,hour=5,minute=53)
+        basetime = '2016001'
+        asosTimeRange = dt.timedelta(days=0,hours=12,minutes=0)
+        asosResolution = 111
+        outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/nhood_25_25_with_negatives/'
+        ns = "DatabaseQuery"
+        dataNames = ['FireMaskHourlyTA','Elevation','WindX','WindY','VegetationIndexA']
+        inKeys = ['FireMaskHourlyTA','Elevation','WindX','WindY','VegetationIndexA']
+        outKeys = ['FireMaskHourlyTA']
+            
+        candidates = []
+        oldData = None
+        toPlot = False
+        for i in range(0,3000): #8
+            mem = psutil.virtual_memory()[2]
+            if mem < 90.0:
+                queryTime = time.mktime(time.strptime(basetime+'15','%Y%j%H'))+(3600*6)*float(i)
+                queryTimestr = time.strftime('%Y%j%H',time.localtime(queryTime))
+                queryDateTime = dt.datetime.fromtimestamp(queryTime)
+                if glob.glob(outdir+queryTimestr+'.pkl') == []:
+                    datas= queryDatabase(queryDateTime,['FireMaskHourlyTA'],
+                                         asosTimeRange=asosTimeRange,
+                                         asosResolution=asosResolution,
+                                         queryTimeRange=[0,6,12],closest=False)
+                    mem = psutil.virtual_memory()[2]
+                    if mem < 90.0:
+                        if len(datas) > 1:
+                            d = datas[0].data.copy()
+                            inds = np.where(d>=7)
+                            matches = np.array([inds[0],inds[1]]).T
+                            if datas[0] is not None and datas[1] is not None and len(matches) != 0:
+                                print("extractCandidates on time %s"%(queryTimestr))
+                                datas2= queryDatabase(queryDateTime,dataNames,
+                                                      asosTimeRange=asosTimeRange,
+                                                      asosResolution=asosResolution,
+                                                      queryTimeRange=[0],
+                                                      closest=True)
+                                dataExtract = extractCandidates(datas2,[datas[1]],inKeys,outKeys,matches,nhood=[25,25])
+                            else:
+                                print("no Candidates on time %s"%(queryTimestr))
+                                dataExtract = None
+                        else:
+                            print("no Candidates on time %s"%(queryTimestr))
+                            dataExtract = None
+                        uc.dumpPickle(dataExtract,outdir+queryTimestr+'.pkl')
+                        print("\t%s created."%(outdir+queryTimestr+'.pkl'))
+                    else:
+                        print("memory too high to extract i=%.0f"%(i))
+                else:
+                    print("Skipping queryTime: %s exists"%(outdir+queryTimestr+'.pkl'))
+                    dataIn = None
+                    dataOut = None
+                    coordinateMatches = None
+                    oldData = None
+                    dataExtract = None
+            else:
+                print("memory too high to read i=%.0f"%(i))
+                dataIn = None
+                dataOut = None
+                coordinateMatches = None
+                oldData = None
+                dataExtract = None
+
+            if dataExtract is not None and toPlot:
+                memError = False
+                for j in range(0,len(dataExtract)):
+                    mem = psutil.virtual_memory()[2]
+                    if mem < 90.0:
+                        dTmp = dataExtract[j]
+                        lat, lon = dTmp.getCenter(decimals=4)
+    
+                        dTmp.plot(saveFig=True,
+                                  closeFig=None,
+                                  saveName=outdir+dTmp.strTime(hours=False)[0]+'_'+lat+'_'+lon+'.png',
+                                  clim=np.linspace(0,9,10),
+                                  label='AF')
+                    else:
+                        memError = True
+                        print("memory too high to plot, j=%.0f"%(j))
