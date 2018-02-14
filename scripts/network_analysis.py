@@ -31,6 +31,7 @@ import generate_dataset as gd
 from generate_dataset import GriddedMeasurementPair
 import psutil
 import matplotlib.pyplot as plt
+import scipy as sp
 
 def splitdata_tf(data,test_number=None,fakeRandom=False):
     ''' splitdata: This function will split the data into test and training
@@ -397,17 +398,20 @@ def scale_datay(data):
         data2.append([np.array(d[0]),np.reshape(dscaled,(len(dscaled),))])
     return data2, [params_min,params_max]
     
-def rearrangeDataset(datas,debugPrint=False,svdInputs=False,k=25):
-    
-    
+def rearrangeDataset(datas,debugPrint=False,
+                     svdInputs=False,k=25,
+                     blurImage=True,kernelSz=10,stdev=1):
     allInputs = []
     allOutputs = []
+    nanWarningCounter = 0
+    nanErrorCounter = 0
     for i in range(0,len(datas)):
         if psutil.virtual_memory()[2] < 80.0:
             data = datas[i]
             inputs = []
             outputs = []
             nanError = False
+            nanWarning = False
             nanKey = ''
             for key in data.__dict__.keys():
                 if "In_" in key:
@@ -420,7 +424,13 @@ def rearrangeDataset(datas,debugPrint=False,svdInputs=False,k=25):
                         if np.isnan(np.nanmin(d)):
                             nanError = True
                             nanKey = nanKey+key+", "
+                        elif len(np.where(np.isnan(d))[0]) > 0:
+                            nanWarning = True
                         d[np.where(np.isnan(d))[0]] = np.nanmin(d)
+                    if blurImage:
+                        d = np.reshape(d,(sz[0],sz[1]))
+                        d = blurImg(d,kernelSz=kernelSz,stdev=stdev)
+                        d = np.reshape(d,(sz[0]*sz[1],))
                     if svdInputs:
                         d = np.reshape(d,(sz[0],sz[1]))
                         d = im2vector(d,k=k)
@@ -438,22 +448,33 @@ def rearrangeDataset(datas,debugPrint=False,svdInputs=False,k=25):
                         if np.isnan(np.nanmin(d)):
                             nanError = True
                             nanKey = nanKey+key+", "
+                        elif np.where(np.isnan(d))[0] > 0:
+                            nanWarning = True
                         d[np.where(np.isnan(d))[0]] = np.nanmin(d)
+                    if blurImage:
+                        d = np.reshape(d,(sz[0],sz[1]))
+                        d = blurImg(d,kernelSz=kernelSz,stdev=stdev)
+                        d = np.reshape(d,(sz[0]*sz[1],))
                     if svdInputs:
                         d = np.reshape(d,(sz[0],sz[1]))
                         d = im2vector(d,k=k)
                     outputs.extend(d)
             inputs = np.array(inputs)
             outputs = np.array(outputs)
+            if nanWarning:
+                nanWarningCounter = nanWarningCounter+1
             if not nanError:
                 allInputs.append(inputs)#[0:5000])
                 allOutputs.append(outputs)
             else:
+                nanErrorCounter = nanErrorCounter+1
                 dataTime = data.strTime()[0]
                 if debugPrint:
                     print("nanError at: %s for keys: %s"%(dataTime,nanKey))
         else:
             print("Not enough memory to reshape.")
+    print("Number of nanWarnings: %.0f"%(nanWarningCounter))
+    print("Number of nanErrors: %.0f"%(nanErrorCounter))
     print(np.shape(allInputs),np.shape(allOutputs))
     newDatas = (np.array(allInputs),np.array(allOutputs))
     return newDatas
@@ -482,6 +503,10 @@ def rearrangeDatasetAF(datas,debugPrint=False,svdInputs=False,k=25):
                             nanError = True
                             nanKey = nanKey+key+", "
                         d[np.where(np.isnan(d))[0]] = np.nanmin(d)
+                    if blurImage:
+                        d = np.reshape(d,(sz[0],sz[1]))
+                        d = blurImg(d,kernelSz=kernelSz,stdev=stdev)
+                        d = np.reshape(d,(sz[0]*sz[1],))
                     if svdInputs:
                         d = np.reshape(d,(sz[0],sz[1]))
                         d = im2vector(d,k=k)
@@ -500,6 +525,10 @@ def rearrangeDatasetAF(datas,debugPrint=False,svdInputs=False,k=25):
                             nanError = True
                             nanKey = nanKey+key+", "
                         d[np.where(np.isnan(d))[0]] = np.nanmin(d)
+                    if blurImage:
+                        d = np.reshape(d,(sz[0],sz[1]))
+                        d = blurImg(d,kernelSz=kernelSz,stdev=stdev)
+                        d = np.reshape(d,(sz[0]*sz[1],))
                     if svdInputs:
                         d = np.reshape(d,(sz[0],sz[1]))
                         d = im2vector(d,k=k)
@@ -533,6 +562,10 @@ def im2vector(img,k=10):
         return np.array(data)
     except np.linalg.LinAlgError:
         return None
+
+def blurImg(img,kernelSz=10,stdev=1):
+    blurred = sp.ndimage.filters.gaussian_filter(img, stdev, order=0)
+    return blurred
 
 def reconstructImg(img,k=10):
     sz = int((np.shape(img)[0]-k)/(2*k))
@@ -604,12 +637,12 @@ if __name__ == "__main__":
         file = ds+'data.out'
     if not glob.glob(file):
         datas = gd.loadCandidates(indir)
-        if psutil.virtual_memory()[2] < 60:
+        if psutil.virtual_memory()[2] < 65:
             with open(ds+'dataraw.out','wb') as f:
                 pickle.dump(datas,f)
         else:
             print("Not enough memory available.")
-        newDatas = rearrangeDataset(datas,svdInputs=svdInputs,k=k,debugPrint=True)
+        newDatas = rearrangeDataset(datas,svdInputs=svdInputs,k=k,debugPrint=False)
         with open(file,'wb') as f:
             pickle.dump(newDatas,f)
     else:

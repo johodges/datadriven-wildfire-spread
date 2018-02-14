@@ -582,6 +582,90 @@ def queryDatabase(queryDateTime,dataNames,
                 datascl.append(datas[i])
         datas = datascl.copy()
     
+    if modis_lat is not None:
+        datas = remapDatas(datas,modis_lat,modis_lon)
+    else:
+        lat_lmt = [31,44]
+        lon_lmt = [-126,-112]
+        pxPerDegree = 120
+        lat_lnsp = np.linspace(np.min(lat_lmt),np.max(lat_lmt),
+                               (np.max(lat_lmt)-np.min(lat_lmt)+1)*pxPerDegree)
+        lon_lnsp = np.linspace(np.min(lon_lmt),np.max(lon_lmt),
+                               (np.max(lon_lmt)-np.min(lon_lmt)+1)*pxPerDegree)
+        modis_lon, modis_lat = np.meshgrid(lon_lnsp,lat_lnsp)
+        datas = remapDatas(datas,modis_lat,modis_lon)
+    
+    return datas
+
+
+def remapDatas(datas,modis_lat,modis_lon):
+    for i in range(0,len(datas)):
+        if type(datas[i]) is not list:
+            if datas[i].dataName == 'Elevation':
+                datas[i].remap(modis_lat,modis_lon,ds=10)
+            elif datas[i].dataName == 'WindX' or datas[i].dataName == 'WindY':
+                datas[i].remap(modis_lat,modis_lon,ds=2)
+            elif datas[i].dataName == 'VegetationIndexA':
+                datas[i].remap(modis_lat,modis_lon,ds=4)
+            elif datas[i].dataName == 'VegetationIndexT':
+                datas[i].remap(modis_lat,modis_lon,ds=4)
+            elif datas[i].dataName == 'BurnedArea':
+                datas[i].remap(modis_lat,modis_lon,ds=4)
+    return datas
+
+def queryDatabase2(queryDateTime,dataNames,
+                  queryTimeRange = [0],
+                  asosTimeRange = dt.timedelta(days=0,hours=12,minutes=0),
+                  asosResolution = 111,
+                  closest=False):
+    ''' This function will query the database for a specific queryDateTime
+    for each name in dataNames.
+    
+    NOTE: queryTimeRange is a list of hour offsets from the queryDateTime to
+        also consider.
+    '''
+    datas = []
+    modis_lat = None
+    for dataName in dataNames:
+        for i in range(0,len(queryTimeRange)):
+            qDT = queryDateTime+dt.timedelta(days=0,hours=queryTimeRange[i],minutes=0)
+            data = loadDataByName(qDT,dataName)
+            if dataName == 'FireMaskHourlyTA' and modis_lat is None and len(data) > 0:
+                modis_lat = data[0].latitude
+                modis_lon = data[0].longitude
+            elif dataName == 'FireMaskHourlyT' or dataName == 'FireMaskHourlyA' and modis_lat is None:
+                modis_lat = data.latitude
+                modis_lon = data.longitude
+            datas.extend(data)
+    datasuq = []
+    for i in range(0,len(datas)):
+        uniqueCheck = True
+        for j in range(0,len(datas)):
+            if i != j:
+                if compareGriddedMeasurement(datas[i],datas[j]):
+                    if i < j:
+                        pass
+                    else:
+                        uniqueCheck = False
+                else:
+                    pass
+        if uniqueCheck:
+            datasuq.append(datas[i])
+    datas = datasuq.copy()
+    if closest:
+        datascl = []
+        for i in range(0,len(datas)):
+            closestCheck = True
+            for j in range(0,len(datas)):
+                if i != j and datas[i].dataName == datas[j].dataName:
+                    if abs(datas[i].dateTime-queryDateTime) < abs(datas[j].dateTime-queryDateTime):
+                        pass
+                    else:
+                        closestCheck = False
+            if closestCheck:
+                datascl.append(datas[i])
+        datas = datascl.copy()
+    
     for i in range(0,len(datas)):
         if type(datas[i]) is not list:
             if datas[i].dataName == 'Elevation':
@@ -597,6 +681,9 @@ def queryDatabase(queryDateTime,dataNames,
     
     
     return datas
+
+
+
 
 def getCandidates(queryDateTime,dataNames,
                   queryTimeRange=None,
@@ -711,7 +798,7 @@ if __name__ == "__main__":
     '''
     
     
-    case = 8
+    case = 7
     
     if case == 0:
         tim = uc.tic()
@@ -1010,8 +1097,97 @@ if __name__ == "__main__":
                         print("memory too high to plot, j=%.0f"%(j))
                 
     if case == 7:
-        indir = ['C:/Users/JHodges/Documents/wildfire-research/output/GoodCandidateComparison/']
-        datas = loadCandidates(indir)
+        #import matplotlib
+        #matplotlib.use('agg')
+        #import matplotlib.pyplot as plt
+        tim = uc.tic()
+        #queryDateTime = dt.datetime(year=2017,month=12,day=4,hour=5,minute=53)
+        basetime = '2016001'
+        asosTimeRange = dt.timedelta(days=0,hours=12,minutes=0)
+        asosResolution = 111
+        outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/nhood_25_25_step3/'
+        ns = "DatabaseQuery"
+        dataNames = ['Elevation','WindX','WindY','VegetationIndexA']
+        inKeys = ['FireMaskHourlyTA','Elevation','WindX','WindY','VegetationIndexA']
+        outKeys = ['FireMaskHourlyTA']
+            
+        candidates = []
+        oldData = None
+        toPlot = False
+        for i in range(0,3000): #8
+            mem = psutil.virtual_memory()[2]
+            if mem < 90.0:
+                queryTime = time.mktime(time.strptime(basetime+'15','%Y%j%H'))+(3600*3)*float(i)
+                queryTimestr = time.strftime('%Y%j%H',time.localtime(queryTime))
+                queryDateTime = dt.datetime.fromtimestamp(queryTime)
+                if glob.glob(outdir+queryTimestr+'.pkl') == []: #queryTimestr[0:7] == '2016177': #glob.glob(outdir+queryTimestr+'.pkl') == []:
+                    datas= queryDatabase(queryDateTime,['FireMaskHourlyTA'],
+                                         asosTimeRange=asosTimeRange,
+                                         asosResolution=asosResolution,
+                                         queryTimeRange=[0,3,6,9,12],closest=False)
+                    mem = psutil.virtual_memory()[2]
+                    if mem < 90.0:
+                        fileName = outdir+datas[0].strTime(hours=False)+'.pkl'
+                        if glob.glob(fileName) == []:
+                            if len(datas) > 1:
+                                d = datas[0].data.copy()
+                                inds = np.where(d>=7)
+                                matches = np.array([inds[0],inds[1]]).T
+                                if datas[0] is not None and datas[1] is not None and len(matches) != 0:
+                                    print("extractCandidates on time %s"%(queryTimestr))
+                                    datas2= queryDatabase(queryDateTime,dataNames,
+                                                          asosTimeRange=asosTimeRange,
+                                                          asosResolution=asosResolution,
+                                                          queryTimeRange=[0],
+                                                          closest=True)
+                                    #datas2 = remapDatas(datas2,datas[0].latitude.copy(),datas[0].longitude.copy())
+                                    dataIn = [datas[0]]
+                                    dataIn.extend(datas2)
+                                    dataOut = [datas[1]]
+                                    dataExtract = extractCandidates(dataIn,dataOut,inKeys,outKeys,matches,nhood=[25,25])
+                                else:
+                                    print("no Candidates on time %s"%(queryTimestr))
+                                    dataExtract = None
+                            else:
+                                print("no Candidates on time %s"%(queryTimestr))
+                                dataExtract = None
+                            uc.dumpPickle(dataExtract,fileName)
+                            print("\t%s created."%(fileName+'.pkl'))
+                        else:
+                            print("Skipping satelliteTime: %s exists"%(fileName))
+                    else:
+                        print("memory too high to extract i=%.0f"%(i))
+                else:
+                    print("Skipping queryTime: %s exists"%(outdir+queryTimestr+'.pkl'))
+                    dataIn = None
+                    dataOut = None
+                    coordinateMatches = None
+                    oldData = None
+                    dataExtract = None
+            else:
+                print("memory too high to read i=%.0f"%(i))
+                dataIn = None
+                dataOut = None
+                coordinateMatches = None
+                oldData = None
+                dataExtract = None
+
+            if dataExtract is not None and toPlot:
+                memError = False
+                for j in range(0,len(dataExtract)):
+                    mem = psutil.virtual_memory()[2]
+                    if mem < 90.0:
+                        dTmp = dataExtract[j]
+                        lat, lon = dTmp.getCenter(decimals=4)
+    
+                        dTmp.plot(saveFig=True,
+                                  closeFig=None,
+                                  saveName=outdir+dTmp.strTime(hours=False)[0]+'_'+lat+'_'+lon+'.png',
+                                  clim=np.linspace(0,9,10),
+                                  label='AF')
+                    else:
+                        memError = True
+                        print("memory too high to plot, j=%.0f"%(j))
         
         
     if case == 8:
@@ -1023,7 +1199,7 @@ if __name__ == "__main__":
         basetime = '2016001'
         asosTimeRange = dt.timedelta(days=0,hours=12,minutes=0)
         asosResolution = 111
-        outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/nhood_25_25_with_negatives/'
+        outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/nhood_25_25_step3/'
         ns = "DatabaseQuery"
         dataNames = ['FireMaskHourlyTA','Elevation','WindX','WindY','VegetationIndexA']
         inKeys = ['FireMaskHourlyTA','Elevation','WindX','WindY','VegetationIndexA']
@@ -1035,7 +1211,7 @@ if __name__ == "__main__":
         for i in range(0,3000): #8
             mem = psutil.virtual_memory()[2]
             if mem < 90.0:
-                queryTime = time.mktime(time.strptime(basetime+'15','%Y%j%H'))+(3600*6)*float(i)
+                queryTime = time.mktime(time.strptime(basetime+'15','%Y%j%H'))+(3600*3)*float(i)
                 queryTimestr = time.strftime('%Y%j%H',time.localtime(queryTime))
                 queryDateTime = dt.datetime.fromtimestamp(queryTime)
                 if glob.glob(outdir+queryTimestr+'.pkl') == []:
@@ -1045,26 +1221,33 @@ if __name__ == "__main__":
                                          queryTimeRange=[0,6,12],closest=False)
                     mem = psutil.virtual_memory()[2]
                     if mem < 90.0:
-                        if len(datas) > 1:
-                            d = datas[0].data.copy()
-                            inds = np.where(d>=7)
-                            matches = np.array([inds[0],inds[1]]).T
-                            if datas[0] is not None and datas[1] is not None and len(matches) != 0:
-                                print("extractCandidates on time %s"%(queryTimestr))
-                                datas2= queryDatabase(queryDateTime,dataNames,
-                                                      asosTimeRange=asosTimeRange,
-                                                      asosResolution=asosResolution,
-                                                      queryTimeRange=[0],
-                                                      closest=True)
-                                dataExtract = extractCandidates(datas2,[datas[1]],inKeys,outKeys,matches,nhood=[25,25])
+                        fileName = outdir+datas[0].strTime(hours=False)+'.pkl'
+                        if glob.glob(fileName) == []:
+                            if len(datas) > 1:
+                                d = datas[0].data.copy()
+                                inds = np.where(d>=7)
+                                matches = np.array([inds[0],inds[1]]).T
+                                if datas[0] is not None and datas[1] is not None and len(matches) != 0:
+                                    print("extractCandidates on time %s"%(queryTimestr))
+                                    datas2= queryDatabase(queryDateTime,dataNames,
+                                                          asosTimeRange=asosTimeRange,
+                                                          asosResolution=asosResolution,
+                                                          queryTimeRange=[0],
+                                                          closest=True)
+                                    print(datas[0])
+                                    datas2 = remapDatas(datas2,datas[0].latitude,datas[0].longitude)
+                                    dataExtract = extractCandidates(datas2,[datas[1]],inKeys,outKeys,matches,nhood=[25,25])
+                                    print(dataExtract)
+                                else:
+                                    print("no Candidates on time %s"%(queryTimestr))
+                                    dataExtract = None
                             else:
                                 print("no Candidates on time %s"%(queryTimestr))
                                 dataExtract = None
+                            uc.dumpPickle(dataExtract,fileName)
+                            print("\t%s created."%(outdir+queryTimestr+'.pkl'))
                         else:
-                            print("no Candidates on time %s"%(queryTimestr))
-                            dataExtract = None
-                        uc.dumpPickle(dataExtract,outdir+queryTimestr+'.pkl')
-                        print("\t%s created."%(outdir+queryTimestr+'.pkl'))
+                            print("Skipping satelliteTime: %s exists"%(fileName))
                     else:
                         print("memory too high to extract i=%.0f"%(i))
                 else:

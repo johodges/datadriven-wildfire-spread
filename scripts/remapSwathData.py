@@ -431,7 +431,7 @@ def queryTimeCustomHdf(qDT,
     specific time.
     '''
     queryTime = time.mktime(qDT.timetuple())+qDT.microsecond / 1E6
-    
+    #print(queryTime)
     if type(datadirs) is str:
         datadirs = [datadirs]
         dataType = 'str'
@@ -461,7 +461,22 @@ def queryTimeCustomHdf(qDT,
         lon = lon[0]
         data = data[0]
         timeStamp = timeStamp[0]
-        
+    else:
+        if len(timeStamp) > 0:
+            inds = np.argsort(timeStamp,axis=0)
+            #print(inds)
+            lat = [ lat[i] for i in inds ]
+            lon = [ lon[i] for i in inds ]
+            data = [ data[i] for i in inds ]
+            timeStamp = [ timeStamp[i] for i in inds]
+            ind = np.argmin(abs(np.array(timeStamp)-queryTime))
+            inds = np.linspace(ind,len(data)-1,len(data)-ind,dtype=np.int)
+            #print(inds)
+            lat = [ lat[i] for i in inds ]
+            lon = [ lon[i] for i in inds ]
+            data = [ data[i] for i in inds ]
+            timeStamp = [ timeStamp[i] for i in inds]
+            #print(timeStamp)
     return lat, lon, data, timeStamp
 
 def updateTimeFileCustomHdf(indir,timezone=0):
