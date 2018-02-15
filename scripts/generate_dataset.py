@@ -1127,9 +1127,10 @@ if __name__ == "__main__":
                                          queryTimeRange=[0,3,6,9,12],closest=False)
                     mem = psutil.virtual_memory()[2]
                     if mem < 90.0:
-                        fileName = outdir+datas[0].strTime(hours=False)+'.pkl'
-                        if glob.glob(fileName) == []:
-                            if len(datas) > 1:
+                        if len(datas) > 1:
+                            fileName = outdir+datas[0].strTime(hours=False)+'.pkl'
+                            if glob.glob(fileName) == []:
+                            
                                 d = datas[0].data.copy()
                                 inds = np.where(d>=7)
                                 matches = np.array([inds[0],inds[1]]).T
@@ -1145,16 +1146,16 @@ if __name__ == "__main__":
                                     dataIn.extend(datas2)
                                     dataOut = [datas[1]]
                                     dataExtract = extractCandidates(dataIn,dataOut,inKeys,outKeys,matches,nhood=[25,25])
+                                    uc.dumpPickle(dataExtract,fileName)
+                                    print("\t%s created."%(fileName+'.pkl'))
                                 else:
                                     print("no Candidates on time %s"%(queryTimestr))
                                     dataExtract = None
                             else:
-                                print("no Candidates on time %s"%(queryTimestr))
-                                dataExtract = None
-                            uc.dumpPickle(dataExtract,fileName)
-                            print("\t%s created."%(fileName+'.pkl'))
+                                print("Skipping satelliteTime: %s exists"%(fileName))
                         else:
-                            print("Skipping satelliteTime: %s exists"%(fileName))
+                            print("no Candidates on time %s"%(queryTimestr))
+                            dataExtract = None
                     else:
                         print("memory too high to extract i=%.0f"%(i))
                 else:
