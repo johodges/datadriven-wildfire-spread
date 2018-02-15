@@ -226,14 +226,14 @@ def getClusterCenters(data,offsetFirst=True):
 def plotClusterCenters(centers):
     from mpl_toolkits.mplot3d import Axes3D
     n_clusters = centers.shape[0]
-    fig = plt.figure()
+    fig = plt.figure(figsize=(48,32))
     ax = fig.add_subplot(111, projection='3d')
     
     ax.scatter(centers[:,1],centers[:,2],centers[:,0])
-    ax.set_xlabel('Latitude')
-    ax.set_ylabel('Longitude')
-    ax.set_zlabel('Time [hours]')
-    plt.title('Estimated number of clusters: %d' % n_clusters)    
+    ax.set_xlabel('Latitude',fontsize=40)
+    ax.set_ylabel('Longitude',fontsize=40)
+    ax.set_zlabel('Time [hours]',fontsize=40)
+    plt.title('Estimated number of clusters: %d' % n_clusters,fontsize=40)
     plt.show()
 
 if __name__ == "__main__":
