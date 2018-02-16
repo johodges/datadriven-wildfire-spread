@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 import util_common as uc
 import numpy as np
 import glob
-import sklearn.decomposition as skd
 import pickle
 
 def loadCandidates(indirs):
@@ -159,6 +158,17 @@ def visualizeDirectory(indir,outdir,dataFile):
                       saveName=outdir+dTmp.strTime(hours=False)[0]+'_'+lat+'_'+lon+'.png',
                       clim=np.linspace(0,1,10),
                       label='AF')
+    
+def visualizeDatas(datas,outdir):
+    for i in range(0,len(datas)):
+        dTmp = datas[i]
+        lat, lon = dTmp.getCenter(decimals=4)
+        if not glob.glob(outdir+dTmp.strTime(hours=False)[0]+'_'+lat+'_'+lon+'.png'):
+            dTmp.plot(saveFig=True,
+                      closeFig=None,
+                      saveName=outdir+dTmp.strTime(hours=False)[0]+'_'+lat+'_'+lon+'.png',
+                      clim=np.linspace(0,1,10),
+                      label='AF')
 
 def visualizeDay(indir,outdir,dataFile,day):
     data = None
@@ -193,7 +203,16 @@ def getCoordinatesDirectory(indir,dataFile):
         coords[i,0] = datas[i].inTime.timestamp()/(24*3600)
     return coords
 
-def getClusterCenters(data,offsetFirst=True):
+def getCoordinatesDatas(datas):
+    coords = np.zeros((len(datas),3))
+    for i in range(0,len(datas)):
+        lat, lon = datas[i].getCenter(decimals=4)
+        coords[i,1] = lat
+        coords[i,2] = lon
+        coords[i,0] = datas[i].inTime.timestamp()/(24*3600)
+    return coords
+
+def getClusterCenters(data,offsetFirst=True,debugPrint=False):
     import sklearn.cluster as sklc
     if offsetFirst:
         t0 = data[0,0].copy()
@@ -217,9 +236,10 @@ def getClusterCenters(data,offsetFirst=True):
         if k > -1 and xy.shape[0] > 0:
             centers[k,:] = np.median(xy,axis=0)
             variance[k,:] = np.std(xy,axis=0)
-            print("k=%.0f\tTim=%.4f+-%.4f\tLat=%.4f+-%.4f\tLon=%.4f+-%.4f" % (k,centers[k,0],variance[k,0],
-                                                                              centers[k,1],variance[k,1],
-                                                                              centers[k,2],variance[k,2]))
+            if debugPrint:
+                print("k=%.0f\tTim=%.4f+-%.4f\tLat=%.4f+-%.4f\tLon=%.4f+-%.4f" % (k,centers[k,0],variance[k,0],
+                                                                                  centers[k,1],variance[k,1],
+                                                                                  centers[k,2],variance[k,2]))
     centers[:,0] = centers[:,0]+t0
     return centers, variance
 
@@ -236,19 +256,28 @@ def plotClusterCenters(centers):
     plt.title('Estimated number of clusters: %d' % n_clusters,fontsize=40)
     plt.show()
 
+def getClusterData(oldDatas,centers):
+    coords = getCoordinatesDatas(oldDatas)
+    newDatas = []
+    for k in range(0,centers.shape[0]):
+        ind = np.argmin(np.sum(abs(coords-centers[k]),axis=1))
+        newDatas.append(oldDatas[ind])
+    return newDatas
+    
+
 if __name__ == "__main__":
     ''' case0: Output image files visualizing all candidates in a directory
         case1: Return data for a single candidate in a directory
         case2: Determine number of unique clusters in candidates based on
             latitude, longitude, and time
     '''
-    case = 0
+    case = 3
     
     #from sklearn.cluster import DBSCAN
     #from sklearn import metrics
     if case == 0:
-        #indir = ['../networkData/20180213/']
-        indir = ['../output/nhood_25_25_step3/']
+        indir = ['../networkData/20180213/']
+        #indir = ['../output/nhood_25_25_step3/']
         outdir=indir[0]+'images/'
         #outdir = '../networkData/20180213/images/'
         dataFile = indir[0]+'dataraw.out'
@@ -266,4 +295,15 @@ if __name__ == "__main__":
         coords = getCoordinatesDirectory(indir,dataFile)
         centers, variance = getClusterCenters(coords,offsetFirst=True)
         plotClusterCenters(centers)
+    elif case == 3:
+        indir = ['../networkData/20180213/']
+        outdir=indir[0]+'clusterImages/'
+        dataFile = indir[0]+'dataraw.out'
+        newDataFile = indir[0]+'dataCluster.raw'
+        datas = gd.loadCandidates(indir,dataFile,forceRebuild=False)
+        coords = getCoordinatesDatas(datas)
+        centers, variance = getClusterCenters(coords,offsetFirst=True)
+        datasCenter = getClusterData(datas,centers)
+        visualizeDatas(datasCenter,outdir)
+        uc.dumpPickle(datasCenter,newDataFile)
         

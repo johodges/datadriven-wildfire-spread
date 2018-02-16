@@ -25,6 +25,8 @@ import gc
 import time
 import sys
 import glob
+import pickle
+import scipy as sp
 
 class GriddedMeasurement(object):
     ''' This class contains a measurement on a latitude and longitude grid.
@@ -734,10 +736,23 @@ def getCandidates(queryDateTime,dataNames,
     
     return datas[0], datas[1], coordsMatch
 
-def loadCandidates(indirs):
+def loadCandidates(indirs,dataFile,forceRebuild=False,memThresh=90):
     ''' This function will laod all candidate pickle files from a list
     of directories.
     '''
+    if not forceRebuild and glob.glob(dataFile) != []:
+        print("Loading data from %s"%(dataFile))
+        with open(dataFile,'rb') as f:
+            datas = pickle.load(f)
+        return datas
+    elif not forceRebuild and glob.glob(dataFile) == []:
+        print("File not found, rebuilding %s"%(dataFile))
+    elif forceRebuild and glob.glob(dataFile) != []:
+        print("Found file but forcing rebuild %s"%(dataFile))
+    elif forceRebuild and glob.glob(dataFile) == []:
+        print("File not found, rebuilding %s"%(dataFile))
+    
+    
     if type(indirs) is not list:
         indirs = [indirs]
     files = []
@@ -750,7 +765,7 @@ def loadCandidates(indirs):
     datas = []
     for file in files:
         mem = psutil.virtual_memory()[2]
-        if mem < 60.0:
+        if mem < memThresh:
             data = uc.readPickle(file)
             if data is not None:
 
@@ -783,7 +798,189 @@ def loadCandidates(indirs):
             memoryError = True
     if memoryError:
         print("Memory is full, re-run the loading software")
+    else:
+        print("Saving data file to pickle %s"%(dataFile))
+        with open(dataFile,'wb') as f:
+                pickle.dump(datas,f)
         
+    return datas
+
+def rearrangeDataset(datas,dataFile,
+                     forceRebuild=False,
+                     svdInputs=False,k=25,
+                     blurImage=True,kernelSz=10,stdev=1,
+                     debugPrint=False,
+                     memThresh=90.0):
+    
+    if not forceRebuild and glob.glob(dataFile) != []:
+        print("Loading data from %s"%(dataFile))
+        with open(dataFile,'rb') as f:
+            newDatas, keys = pickle.load(f)
+        return newDatas, keys
+    elif not forceRebuild and glob.glob(dataFile) == []:
+        print("File not found, rebuilding %s"%(dataFile))
+    elif forceRebuild and glob.glob(dataFile) != []:
+        print("Found file but forcing rebuild %s"%(dataFile))
+    elif forceRebuild and glob.glob(dataFile) == []:
+        print("File not found, rebuilding %s"%(dataFile))
+    
+    allInputs = []
+    allOutputs = []
+    nanWarningCounter = 0
+    nanErrorCounter = 0
+    memoryError = False
+    for i in range(0,len(datas)):
+        if psutil.virtual_memory()[2] < memThresh:
+            data = datas[i]
+            inputs = []
+            outputs = []
+            nanError = False
+            nanWarning = False
+            nanKey = ''
+            for key in data.inKeys:
+                d = getattr(data,'In_'+key)
+                sz = np.shape(d)
+                d = np.reshape(d,(sz[0]*sz[1],))
+                if len(np.where(np.isnan(d))[0]) > 0:
+                    #print(key)
+                    #nanError = True
+                    if np.isnan(np.nanmin(d)):
+                        nanError = True
+                        nanKey = nanKey+key+", "
+                    elif len(np.where(np.isnan(d))[0]) > 0:
+                        nanWarning = True
+                    d[np.where(np.isnan(d))[0]] = np.nanmin(d)
+                if blurImage:
+                    d = np.reshape(d,(sz[0],sz[1]))
+                    d = blurImg(d,kernelSz=kernelSz,stdev=stdev)
+                    d = np.reshape(d,(sz[0]*sz[1],))
+                if svdInputs:
+                    d = np.reshape(d,(sz[0],sz[1]))
+                    d = im2vector(d,k=k)
+                if d is not None:
+                    inputs.extend(d)
+                else:
+                    nanError = True
+            for key in data.outKeys:
+                d = getattr(data,'Out_'+key)
+                sz = np.shape(d)
+                d = np.reshape(d,(sz[0]*sz[1],))
+                if len(np.where(np.isnan(d))[0]) > 0:
+                    #print(key)
+                    #nanError = True
+                    if np.isnan(np.nanmin(d)):
+                        nanError = True
+                        nanKey = nanKey+key+", "
+                    elif np.where(np.isnan(d))[0] > 0:
+                        nanWarning = True
+                    d[np.where(np.isnan(d))[0]] = np.nanmin(d)
+                if blurImage:
+                    d = np.reshape(d,(sz[0],sz[1]))
+                    d = blurImg(d,kernelSz=kernelSz,stdev=stdev)
+                    d = np.reshape(d,(sz[0]*sz[1],))
+                if svdInputs:
+                    d = np.reshape(d,(sz[0],sz[1]))
+                    d = im2vector(d,k=k)
+                outputs.extend(d)
+            inputs = np.array(inputs)
+            outputs = np.array(outputs)
+            if nanWarning:
+                nanWarningCounter = nanWarningCounter+1
+            if not nanError:
+                allInputs.append(inputs)#[0:5000])
+                allOutputs.append(outputs)
+            else:
+                nanErrorCounter = nanErrorCounter+1
+                dataTime = data.strTime()[0]
+                if debugPrint:
+                    print("nanError at: %s for keys: %s"%(dataTime,nanKey))
+        else:
+            memoryError = True
+            print("Not enough memory to reshape.")
+    print("Number of nanWarnings: %.0f"%(nanWarningCounter))
+    print("Number of nanErrors: %.0f"%(nanErrorCounter))
+    print(np.shape(allInputs),np.shape(allOutputs))
+    newDatas = (np.array(allInputs),np.array(allOutputs))
+    keys = (datas[0].inKeys,datas[0].outKeys)
+    if memoryError:
+        print("Memory is full, re-run the loading software")
+    else:
+        print("Saving data file to pickle %s"%(dataFile))
+        for d in datas:
+            del d
+        gc.collect()
+        with open(dataFile,'wb') as f:
+                pickle.dump([newDatas,keys],f)
+    
+    return newDatas, keys
+
+def datasKeyRemap(datas,keys):
+    szIn = datas[0].shape
+    numIn = len(keys[0])
+    szOut = datas[1].shape
+    numOut = len(keys[1])
+    
+    newDatas = []
+    dataSize = int(int(szIn[1]/numIn)**0.5)
+    
+    for i in range(0,szIn[0]):
+        newData = []
+        for j in range(0,numIn):
+            data = datas[0][i,j*int(szIn[1]/numIn):(j+1)*int(szIn[1]/numIn)].copy()
+            dataRS = np.reshape(data,(dataSize,dataSize))
+            newData.append(dataRS)
+        for j in range(0,numOut):
+            data = datas[1][i,j*int(szOut[1]/numOut):(j+1)*int(szOut[1]/numOut)].copy()
+            dataRS = np.reshape(data,(dataSize,dataSize))
+            newData.append(dataRS)
+        newDatas.append(newData)
+    
+    names = []
+    for i in range(0,numIn):
+        names.append('In_'+keys[0][i])
+    for i in range(0,numOut):
+        names.append('Val_'+keys[1][i])
+    
+    return newDatas, names
+    
+
+def im2vector(img,k=10):
+    data = []
+    try:
+        u,s,v = np.linalg.svd(img)
+        u = np.reshape(u[:,:k],(u.shape[0]*k,))
+        v = np.reshape(v[:k,:],(v.shape[0]*k,))
+        s = s[:k]
+        data.extend(u)
+        data.extend(v)
+        data.extend(s)
+        return np.array(data)
+    except np.linalg.LinAlgError:
+        return None
+
+def blurImg(img,kernelSz=10,stdev=1):
+    blurred = sp.ndimage.filters.gaussian_filter(img, stdev, order=0)
+    return blurred
+
+def reconstructImg(img,k=10):
+    sz = int((np.shape(img)[0]-k)/(2*k))
+    u = np.reshape(img[0:sz*k],(sz,k))
+    v = np.reshape(img[sz*k:2*sz*k],(k,sz))
+    s = img[2*sz*k:]
+    data = np.dot(u,np.dot(np.diag(s),v))
+    return data
+
+def datasRemoveKey(datas,key):
+    
+    for data in datas:
+        if key[0:3] == 'In_':
+            if key[3:] in data.inKeys:
+                data.inKeys.remove(key[3:])
+                data.__dict__.pop(key,None)
+        if key[0:4] == 'Out_':
+            if key[4:] in data.inKeys:
+                data.inKeys.remove(key[4:])
+                data.__dict__.pop(key,None)
     return datas
 
 if __name__ == "__main__":

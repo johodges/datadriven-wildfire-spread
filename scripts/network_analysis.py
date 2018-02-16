@@ -31,7 +31,7 @@ import generate_dataset as gd
 from generate_dataset import GriddedMeasurementPair
 import psutil
 import matplotlib.pyplot as plt
-import scipy as sp
+
 
 def splitdata_tf(data,test_number=None,fakeRandom=False):
     ''' splitdata: This function will split the data into test and training
@@ -170,12 +170,12 @@ def tensorflow_network(data,num=1001,neurons=None,test_number=None,ns='',ds='',
     elif type(data) is np.ndarray and not train:
         assert len(data.shape) == 2, 'len(data.shape) should be 2'
     elif continue_train and data is None:
-        print("Loading data from file %s"%(ds+'data.out'))
+        print("Loading data from file %s"%(ds))
     else:
         #print("Did not recognize input format. See documentation.")
         assert False, 'Did not recognize input format. See documentation.'
     
-    if glob.glob(ns+'model.pkl') and glob.glob(ds+'data.out') and continue_train and train:
+    if glob.glob(ns+'model.pkl') and glob.glob(ds) and continue_train and train:
         continue_train = True
     else:
         continue_train = False
@@ -224,11 +224,13 @@ def tensorflow_network(data,num=1001,neurons=None,test_number=None,ns='',ds='',
     # Forward propagation
     
     if activation_function == 'sigmoid':
-        yhat = forwardprop(X, w1, b1)
+        yhat = forwardprop_sigmoid(X, w1, b1)
     elif activation_function == 'relu':
         yhat = forwardprop_relu(X, w1, b1)
+    elif activation_function == 'tanh':
+        yhat = forwardprop_tanh(X, w1, b1)
     else:
-        yhat = forwardprop_relu(X, w1, b1)
+        yhat = forwardprop(X, w1, b1)
     
     if train:
         # Backward propagation
@@ -242,9 +244,13 @@ def tensorflow_network(data,num=1001,neurons=None,test_number=None,ns='',ds='',
             #with open("./"+ds+"data.out",'wb') as f:
             #    pickle.dump([test_data,training_data],f)
         # Perform num training epochs
+        if num < 10:
+            modNum = 1
+        else:
+            modNum = int(num/10)
         for epoch in range(num):
             sess.run(updates, feed_dict={X: training_data[0], y: training_data[1]})
-            if epoch % int(num/10) == 0:
+            if epoch % modNum == 0:
                 if comparison_function == 'rmse':
                     train_accuracy = np.mean(abs(training_data[1]-sess.run(yhat, feed_dict={X: training_data[0]}))**2)**0.5
                     test_accuracy  = np.mean(abs(test_data[1]-sess.run(yhat, feed_dict={X: test_data[0]}))**2)**0.5
@@ -336,9 +342,54 @@ def forwardprop(X, w, b):
         Outputs:
           yhat: tensorflow variable for neural network outputs
     '''
+    h = tf.nn.leaky_relu(tf.add(tf.matmul(X,w[0]),b[0]))
+    if len(w)-1>1:
+        for i in range(1,len(w)-2):
+            h = tf.nn.leaky_relu(tf.add(tf.matmul(h,w[i]),b[i]))
+        h = tf.nn.tanh(tf.add(tf.matmul(h,w[-2]),b[-1]))
+        print("Many relu!")
+    else:
+        print("Only one relu")
+        for i in range(1,len(w)-1):
+            h = tf.nn.tanh(tf.add(tf.matmul(h,w[i]),b[i]))
+    yhat = tf.matmul(h, w[-1])
+    return yhat
+
+def forwardprop_sigmoid(X, w, b):
+    ''' forwardprop: This function propogates inputs to outputs using the
+        weights and biases from the neural network using sigmoid activation
+        function.
+        
+        Inputs:
+          X: tensorflow variable for neural network inputs
+          w: tensorflow variable for network weights
+          b: tensorflow variable for network biases
+        
+        Outputs:
+          yhat: tensorflow variable for neural network outputs
+    '''
     h = tf.nn.sigmoid(tf.add(tf.matmul(X,w[0]),b[0]))
     for i in range(1,len(w)-1):
         h = tf.nn.sigmoid(tf.add(tf.matmul(h,w[i]),b[i]))
+    yhat = tf.matmul(h, w[-1])
+    return yhat
+
+def forwardprop_tanh(X, w, b):
+    ''' forwardprop: This function propogates inputs to outputs using the
+        weights and biases from the neural network using sigmoid activation
+        function.
+        
+        Inputs:
+          X: tensorflow variable for neural network inputs
+          w: tensorflow variable for network weights
+          b: tensorflow variable for network biases
+        
+        Outputs:
+          yhat: tensorflow variable for neural network outputs
+    '''
+    h = tf.nn.tanh(tf.add(tf.matmul(X,w[0]),b[0]))
+    for i in range(1,len(w)-1):
+        h = tf.nn.tanh(tf.add(tf.matmul(h,w[i]),b[i]))
     yhat = tf.matmul(h, w[-1])
     return yhat
 
@@ -397,186 +448,11 @@ def scale_datay(data):
         dscaled = (d[1][:,0]-params_min)/(params_max-params_min)
         data2.append([np.array(d[0]),np.reshape(dscaled,(len(dscaled),))])
     return data2, [params_min,params_max]
+
+
+
+def network_wildfire_train(data,ns,ds,af,neu=[100,100,100],tn=10,num=11,lr=10**-7):
     
-def rearrangeDataset(datas,debugPrint=False,
-                     svdInputs=False,k=25,
-                     blurImage=True,kernelSz=10,stdev=1):
-    allInputs = []
-    allOutputs = []
-    nanWarningCounter = 0
-    nanErrorCounter = 0
-    for i in range(0,len(datas)):
-        if psutil.virtual_memory()[2] < 80.0:
-            data = datas[i]
-            inputs = []
-            outputs = []
-            nanError = False
-            nanWarning = False
-            nanKey = ''
-            for key in data.__dict__.keys():
-                if "In_" in key:
-                    d = getattr(data,key)
-                    sz = np.shape(d)
-                    d = np.reshape(d,(sz[0]*sz[1],))
-                    if len(np.where(np.isnan(d))[0]) > 0:
-                        #print(key)
-                        #nanError = True
-                        if np.isnan(np.nanmin(d)):
-                            nanError = True
-                            nanKey = nanKey+key+", "
-                        elif len(np.where(np.isnan(d))[0]) > 0:
-                            nanWarning = True
-                        d[np.where(np.isnan(d))[0]] = np.nanmin(d)
-                    if blurImage:
-                        d = np.reshape(d,(sz[0],sz[1]))
-                        d = blurImg(d,kernelSz=kernelSz,stdev=stdev)
-                        d = np.reshape(d,(sz[0]*sz[1],))
-                    if svdInputs:
-                        d = np.reshape(d,(sz[0],sz[1]))
-                        d = im2vector(d,k=k)
-                    if d is not None:
-                        inputs.extend(d)
-                    else:
-                        nanError = True
-                if "Out_" in key:
-                    d = getattr(data,key)
-                    sz = np.shape(d)
-                    d = np.reshape(d,(sz[0]*sz[1],))
-                    if len(np.where(np.isnan(d))[0]) > 0:
-                        #print(key)
-                        #nanError = True
-                        if np.isnan(np.nanmin(d)):
-                            nanError = True
-                            nanKey = nanKey+key+", "
-                        elif np.where(np.isnan(d))[0] > 0:
-                            nanWarning = True
-                        d[np.where(np.isnan(d))[0]] = np.nanmin(d)
-                    if blurImage:
-                        d = np.reshape(d,(sz[0],sz[1]))
-                        d = blurImg(d,kernelSz=kernelSz,stdev=stdev)
-                        d = np.reshape(d,(sz[0]*sz[1],))
-                    if svdInputs:
-                        d = np.reshape(d,(sz[0],sz[1]))
-                        d = im2vector(d,k=k)
-                    outputs.extend(d)
-            inputs = np.array(inputs)
-            outputs = np.array(outputs)
-            if nanWarning:
-                nanWarningCounter = nanWarningCounter+1
-            if not nanError:
-                allInputs.append(inputs)#[0:5000])
-                allOutputs.append(outputs)
-            else:
-                nanErrorCounter = nanErrorCounter+1
-                dataTime = data.strTime()[0]
-                if debugPrint:
-                    print("nanError at: %s for keys: %s"%(dataTime,nanKey))
-        else:
-            print("Not enough memory to reshape.")
-    print("Number of nanWarnings: %.0f"%(nanWarningCounter))
-    print("Number of nanErrors: %.0f"%(nanErrorCounter))
-    print(np.shape(allInputs),np.shape(allOutputs))
-    newDatas = (np.array(allInputs),np.array(allOutputs))
-    return newDatas
-
-def rearrangeDatasetAF(datas,debugPrint=False,svdInputs=False,k=25):
-    
-    
-    allInputs = []
-    allOutputs = []
-    for i in range(0,len(datas)):
-        if psutil.virtual_memory()[2] < 90.0:
-            data = datas[i]
-            inputs = []
-            outputs = []
-            nanError = False
-            nanKey = ''
-            for key in data.__dict__.keys():
-                if "In_FireMask" in key:
-                    d = getattr(data,key)
-                    sz = np.shape(d)
-                    d = np.reshape(d,(sz[0]*sz[1],))
-                    if len(np.where(np.isnan(d))[0]) > 0:
-                        #print(key)
-                        #nanError = True
-                        if np.isnan(np.nanmin(d)):
-                            nanError = True
-                            nanKey = nanKey+key+", "
-                        d[np.where(np.isnan(d))[0]] = np.nanmin(d)
-                    if blurImage:
-                        d = np.reshape(d,(sz[0],sz[1]))
-                        d = blurImg(d,kernelSz=kernelSz,stdev=stdev)
-                        d = np.reshape(d,(sz[0]*sz[1],))
-                    if svdInputs:
-                        d = np.reshape(d,(sz[0],sz[1]))
-                        d = im2vector(d,k=k)
-                    if d is not None:
-                        inputs.extend(d)
-                    else:
-                        nanError = True
-                if "Out_FireMask" in key:
-                    d = getattr(data,key)
-                    sz = np.shape(d)
-                    d = np.reshape(d,(sz[0]*sz[1],))
-                    if len(np.where(np.isnan(d))[0]) > 0:
-                        #print(key)
-                        #nanError = True
-                        if np.isnan(np.nanmin(d)):
-                            nanError = True
-                            nanKey = nanKey+key+", "
-                        d[np.where(np.isnan(d))[0]] = np.nanmin(d)
-                    if blurImage:
-                        d = np.reshape(d,(sz[0],sz[1]))
-                        d = blurImg(d,kernelSz=kernelSz,stdev=stdev)
-                        d = np.reshape(d,(sz[0]*sz[1],))
-                    if svdInputs:
-                        d = np.reshape(d,(sz[0],sz[1]))
-                        d = im2vector(d,k=k)
-                    outputs.extend(d)
-            inputs = np.array(inputs)
-            outputs = np.array(outputs)
-            if not nanError:
-                allInputs.append(inputs)#[0:5000])
-                allOutputs.append(outputs)
-            else:
-                dataTime = data.strTime()[0]
-                if debugPrint:
-                    print("nanError at: %s for keys: %s"%(dataTime,nanKey))
-        else:
-            print("Not enough memory to reshape.")
-    
-    print(np.shape(allInputs),np.shape(allOutputs))
-    newDatas = (np.array(allInputs),np.array(allOutputs))
-    return newDatas
-
-def im2vector(img,k=10):
-    data = []
-    try:
-        u,s,v = np.linalg.svd(img)
-        u = np.reshape(u[:,:k],(u.shape[0]*k,))
-        v = np.reshape(v[:k,:],(v.shape[0]*k,))
-        s = s[:k]
-        data.extend(u)
-        data.extend(v)
-        data.extend(s)
-        return np.array(data)
-    except np.linalg.LinAlgError:
-        return None
-
-def blurImg(img,kernelSz=10,stdev=1):
-    blurred = sp.ndimage.filters.gaussian_filter(img, stdev, order=0)
-    return blurred
-
-def reconstructImg(img,k=10):
-    sz = int((np.shape(img)[0]-k)/(2*k))
-    u = np.reshape(img[0:sz*k],(sz,k))
-    v = np.reshape(img[sz*k:2*sz*k],(k,sz))
-    s = img[2*sz*k:]
-    data = np.dot(u,np.dot(np.diag(s),v))
-    return data
-
-def network_wildfire_train(data,ns,ds,neu=[100,100,100],tn=10,num=11,lr=10**-7):
-    af='sigmoid'
     cf='sae'
     #for n in neu:
     #    ns = ns+'_'+str(n)
@@ -585,29 +461,91 @@ def network_wildfire_train(data,ns,ds,neu=[100,100,100],tn=10,num=11,lr=10**-7):
             data,ns=ns,neurons=neu,num=num,test_number=tn,learning_rate=lr,
             activation_function=af,comparison_function=cf,
             fakeRandom=True,ds=ds)
-    print("Tensor flow param->score time:",uc.toc(t1))
+    uc.toc(t1)
+    #print("Tensor flow param->score time:",uc.toc(t1))
     plt.figure()
     plt.plot(test_data[1][0],test_data[1][0])
     plt.xlabel('True Scaled Score')
     plt.ylabel('Pred Scaled Score')
     plt.title('Score Estimate (TensorFlow)')
-    return test_data
+    return test_data, train_data
 
 def network_wildfire_test(data,ns):
-    t1 = uc.tic()
+    #t1 = uc.tic()
     test_prediction, test_data2 = tensorflow_network(data,train=False,ns=ns)
-    print("Tensor flow retest param->score time:",uc.toc(t1))
-    plt.figure(figsize=(12,8))
-    d = data[1][0].copy()
-    d[d<7] = 0
-    d[d>=7] = 1
-    plt.plot(d,test_prediction[0])
-    plt.xlabel('Measured Active Fire Index')
-    plt.ylabel('Predicted Active Fire Index')
+    #print("Tensor flow retest param->score time:",uc.toc(t1))
+    #plt.figure(figsize=(12,8))
+    #d = data[1][0].copy()
+    #d[d<7] = 0
+    #d[d>=7] = 1
+    #plt.plot(d,test_prediction[0])
+    #plt.xlabel('Measured Active Fire Index')
+    #plt.ylabel('Predicted Active Fire Index')
     #plt.title('Score Estimate (TensorFlow)')
     #for i in range(0,len(test_prediction)):
     #    plt.scatter(d[i],test_prediction[i])
     return test_prediction
+
+def plotWildfireTest(datas,names,
+                     clim=None,closeFig=None,
+                     saveFig=False,saveName=''):
+    totalPlots = np.ceil(float(len(datas))**0.5)
+    colPlots = totalPlots
+    rowPlots = np.ceil((float(len(datas)))/colPlots)
+    currentPlot = 0
+    
+    if saveFig:
+        fntsize = 20
+        lnwidth = 5
+        fig = plt.figure(figsize=(colPlots*12,rowPlots*10))#,tight_layout=True)      
+        if closeFig is None:
+            closeFig = True
+    else:
+        fig = plt.figure(figsize=(colPlots*6,rowPlots*5))#,tight_layout=True)
+        fntsize = 20
+        lnwidth = 2
+        if closeFig is None:
+            closeFig = False
+        
+    xmin = 0
+    xmax = datas[0].shape[1]
+    xticks = np.linspace(xmin,xmax,int(round((xmax-xmin)/10)+1))
+    ymin = 0
+    ymax = datas[0].shape[0]
+    yticks = np.linspace(ymin,ymax,int(round((ymax-ymin)/10)+1))
+
+    for i in range(0,len(names)):
+        key = names[i]
+        currentPlot = currentPlot+1
+
+        ax = fig.add_subplot(rowPlots,colPlots,currentPlot)
+        ax.tick_params(axis='both',labelsize=fntsize)
+        plt.xticks(xticks)
+        plt.yticks(yticks)
+        #plt.xlabel('Longitude',fontsize=fntsize)
+        #plt.ylabel('Latitude',fontsize=fntsize)
+        plt.title(key,fontsize=fntsize)
+
+        if clim is None:
+            clim = np.linspace(0,1,10)
+            label = ''
+        else:
+            label = ''
+        img = ax.imshow(datas[i],cmap='jet')#,vmin=0,vmax=1)
+        #img = ax.contourf(self.longitude,self.latitude,getattr(self,key),levels=clim,cmap=cmap)
+        img_cb = plt.colorbar(img,ax=ax,label=label)
+
+        img_cb.set_label(label=label,fontsize=fntsize)
+        img_cb.ax.tick_params(axis='both',labelsize=fntsize)
+        ax.grid(linewidth=lnwidth/4,linestyle='-.',color='k')
+        for ln in ax.lines:
+            ln.set_linewidth(lnwidth)
+    if saveFig:
+        fig.savefig(saveName)
+        
+    if closeFig:
+        plt.clf()
+        plt.close(fig)
 
 if __name__ == "__main__":
     #import generate_dataset as gd
@@ -616,80 +554,109 @@ if __name__ == "__main__":
     #outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/NetworkTest/'
     
     indir = ['../networkData/20180213/']
-    outdir = '../networkData/output/'
+    #outdir = '../networkData/output/'
+    outdir = indir[0]+'output/'
+    dataRawFile = indir[0]+'data.raw'
     
     # Define which parametric study to load
     study2use = 3
-    neu = [100]
-    num = 11
-    lr = 10**-7
-    ns = outdir+'test'
-    ds = indir[0]
+    neu = [2506]
+    num = 1001
+    lr = 10**-9
+    af = 'custom'
+    svdInputs = False
+    basenumber = 5
+    generatePlots=True
+    k = 11
+    
+    #neu = [10000,5000,2500]
+    #num = 11
+    #lr = 10**-7
+    ns = outdir+'custom'
+    
     for n in neu:
         ns = ns+'_'+str(n)
+    if svdInputs:
+        ns = ns+'_svd_'+str(k)
     
-    svdInputs = False
-    k = 25
+
     
     if svdInputs:
-        file = ds+'dataSvd.out'
+        dataFile = dataRawFile+'.svd' #indir[0]+'dataSvd.out'
     else:
-        file = ds+'data.out'
-    if not glob.glob(file):
-        datas = gd.loadCandidates(indir)
-        if psutil.virtual_memory()[2] < 65:
-            with open(ds+'dataraw.out','wb') as f:
-                pickle.dump(datas,f)
-        else:
-            print("Not enough memory available.")
-        newDatas = rearrangeDataset(datas,svdInputs=svdInputs,k=k,debugPrint=False)
-        with open(file,'wb') as f:
-            pickle.dump(newDatas,f)
-    else:
-        with open(file,'rb') as f:
-            print("Loading data from %s"%(file))
-            newDatas = pickle.load(f)
+        dataFile = dataRawFile+'.out'
+    #datas = gd.loadCandidates(indir,dataRawFile,forceRebuild=False)
+    datas = []
+    #datas = gd.datasRemoveKey(datas,'In_WindX')
+    #datas = gd.datasRemoveKey(datas,'In_WindY')
+    #datas = gd.datasRemoveKey(datas,'In_VegetationIndexA')
+    #datas = gd.datasRemoveKey(datas,'In_Elevation')
+    newDatas, keys = gd.rearrangeDataset(datas,dataFile,svdInputs=svdInputs,k=k,forceRebuild=False)
     
     # Choose what networks to train
     type_one = True
     type_two = True
     
-    test_data = network_wildfire_train(newDatas,ns,ds,tn=5,neu=neu,num=num,lr=lr)
-    test_prediction = network_wildfire_test(test_data,ns)
+    test_data, train_data = network_wildfire_train(newDatas,ns,dataFile,af,tn=5,neu=neu,num=num,lr=lr)
     
-    test_prediction_rm = []
-    dataSize = int(test_prediction[0].shape[0]**0.5)
+    if generatePlots:
+        test_prediction = network_wildfire_test(test_data,ns)
+        train_data[0][0,0:2500]=0
+        train_data[0][1,2500:5000]=0
+        train_data[0][2,5000:7500]=0
+        train_data[0][3,7500:10000]=0
+        train_data[0][4,10000:12500]=0
+        train_prediction = network_wildfire_test(train_data,ns)
+        
+        test_prediction_rm = []
+        dataSize = int(test_prediction[0].shape[0]**0.5)
+        
     
-
-    
-    
-    toPlot = 2
-    
-    basenumber = 5
-    
-    if svdInputs:
-        svdData = test_data[0][toPlot].copy()
-        svdData = svdData[0:int(len(svdData)/basenumber)]
-        inData = reconstructImg(svdData,k=k)
-        outData = reconstructImg(test_prediction[toPlot],k=k)
-        valData = reconstructImg(test_data[1][toPlot].copy(),k=k)
-    else:
-        inData = np.reshape(test_data[0][toPlot][0:2500],(dataSize,dataSize))
-        outData = np.reshape(test_prediction[toPlot],(dataSize,dataSize))
-        valData = np.reshape(test_data[1][toPlot][0:2500],(dataSize,dataSize))
-    plt.figure(figsize=(12,8))
-    plt.imshow(inData,cmap='jet')
-    #plt.contourf(theData,cmap='jet',levels=np.linspace(0,1,10))
-    plt.colorbar()
-    
-    plt.figure(figsize=(12,8))
-    plt.imshow(outData,cmap='jet')
-    #plt.contourf(test_prediction_rm[toPlot],cmap='jet',levels=np.linspace(0,1,10))
-    plt.colorbar()
-    
-    #theData = np.reshape(test_data[1][toPlot][0:2500],(dataSize,dataSize))
-    plt.figure(figsize=(12,8))
-    plt.imshow(valData,cmap='jet')
-    #plt.contourf(theData,cmap='jet',levels=np.linspace(0,1,10))
-    plt.colorbar()
-    
+        
+        if not svdInputs:
+            datas, names = gd.datasKeyRemap(test_data, keys)
+            names.append('Network Fire Mask')
+        else:
+            datas = []
+            names = []
+            names.extend(['Input Data','Validation Data','Network Fire Mask'])
+        for toPlot in range(0,test_data[0].shape[0]):
+            if svdInputs:
+                svdData = test_data[0][toPlot].copy()
+                svdData = svdData[0:int(len(svdData)/basenumber)]
+                inData = gd.reconstructImg(svdData,k=k)
+                outData = gd.reconstructImg(test_prediction[toPlot],k=k)
+                valData = gd.reconstructImg(test_data[1][toPlot].copy(),k=k)
+                datas.append([inData,valData])
+            else:
+                
+                #inData = np.reshape(test_data[0][toPlot][0:2500],(dataSize,dataSize))
+                outData = np.reshape(test_prediction[toPlot],(dataSize,dataSize))
+                #valData = np.reshape(test_data[1][toPlot][0:2500],(dataSize,dataSize))
+            #outData[outData<0]=0
+            data = datas[toPlot]
+            data.extend([outData])
+            
+            plotWildfireTest(data,names,
+                             saveFig=True,saveName=ns+'testData_'+str(toPlot)+'.png')
+        if not svdInputs:
+            datas, names = gd.datasKeyRemap(train_data, keys)
+            names.append('Network Fire Mask')
+        else:
+            datas = []
+            names = []
+            names.extend(['Input Data','Network Fire Mask','Validation Data'])
+        for toPlot in range(0,test_data[0].shape[0]):
+            if svdInputs:
+                svdData = train_data[0][toPlot].copy()
+                svdData = svdData[0:int(len(svdData)/basenumber)]
+                inData = gd.reconstructImg(svdData,k=k)
+                outData = gd.reconstructImg(train_prediction[toPlot],k=k)
+                valData = gd.reconstructImg(train_data[1][toPlot].copy(),k=k)
+                datas.append([inData,valData])
+            else:
+                outData = np.reshape(train_prediction[toPlot],(dataSize,dataSize))
+            data = datas[toPlot]
+            data.extend([outData])
+            plotWildfireTest(data,names,
+                             saveFig=True,saveName=ns+'trainData_'+str(toPlot)+'.png')
