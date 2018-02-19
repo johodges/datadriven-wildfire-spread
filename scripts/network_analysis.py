@@ -294,6 +294,202 @@ def tensorflow_network(data,num=1001,neurons=None,test_number=None,ns='',ds='',
         # Return training and test datas, path to network parameters, test predictions
         return test_prediction, test_data
 
+
+
+
+
+
+
+
+
+
+
+
+def tensorflow_network_conv(data,num=1001,neurons=None,test_number=None,ns='',ds='',
+                       train=True,learning_rate=0.00001,continue_train=True,
+                       fakeRandom=False,
+                       activation_function='relu',
+                       comparison_function='rmse'):
+    ''' tensorflow_network: This function defines a tensorflow network. It can
+        be used to train or test the network.
+        
+        Inputs:
+          data: input data in tensorflow format
+            training format:
+              type(data) = tuple
+              len(data) = 2
+              type(data[0]) = numpy.ndarray
+              data[0].shape = (number of samples, number of inputs)
+              type(data[1]) = numpy.ndarray
+              data[1].shape = (number of samples, number of outputs)
+            test format: (Note: can also accept training format)
+              type(data) = numpy.ndarray
+              data.shape = (number of samples, number of inputs)
+          num: number of epochs to train
+          train: whether or not to train the network
+          ns: namespace
+          neurons: list of neurons to use in fully connected hidden layers
+          test_number: number of samples to withold for testing. If none, half
+            the data is used.
+          learning_rate: learning rate for neural network
+          activation_function: type of activation function to use. Valid
+            arguments are 'relu' and 'sigmoid'
+          
+        Outputs (train):
+          training_data: subset of data used to train the network
+          test_data: subset of data used to test the network
+          save_path: pickled network weights and biases
+          test_prediction: network predictions of test data
+        
+        Outputs (no train):
+          test_data: data used to test the network
+          test_prediction: network predictions of test data
+          
+    '''
+    
+    # Check data format
+    if type(data) is tuple:
+        assert type(data) is tuple, 'type(data) should be tuple'
+        assert len(data) == 2, 'len(data) should be 2'
+        assert type(data[0]) is np.ndarray, 'type(data[0]) should be numpy.ndarray'
+        assert data[0].shape[0] == data[1].shape[0], 'data[0].shape[0] should be the same as data[1].shape[0]'
+    elif type(data) is np.ndarray and not train:
+        assert len(data.shape) == 2, 'len(data.shape) should be 2'
+    elif continue_train and data is None:
+        print("Loading data from file %s"%(ds))
+    else:
+        #print("Did not recognize input format. See documentation.")
+        assert False, 'Did not recognize input format. See documentation.'
+    
+    if glob.glob(ns+'model.pkl') and glob.glob(ds) and continue_train and train:
+        continue_train = True
+    else:
+        continue_train = False
+    # Start tensorflow session
+    sess = tf.Session()
+    
+    if train and not continue_train:
+        # Determine input and output layer dimensions
+        dims = data[0].shape[1]
+        ydim = data[1].shape[1]
+        
+        # Split and arrange data
+        test_data, training_data = splitdata_tf(data,test_number=test_number,fakeRandom=fakeRandom)
+        
+        # Define layers
+        if neurons is None:
+            neurons = [dims, ydim]
+        else:
+            neu = [dims]
+            neu.extend(neurons)
+            neu.extend([ydim])
+            neurons = neu
+        print("NN layers:",neurons)
+        
+        # Weight initializations
+        w1,b1 = init_network(neurons)
+        old_epoch = 0
+    elif continue_train and train:
+        # Import saved network parameters
+        w1,b1,activation_function,dims,ydim, old_epoch = import_wb("./"+ns+"model.pkl",sess)
+        test_data, training_data = splitdata_tf(data,test_number=test_number,fakeRandom=fakeRandom)
+        #test_data, training_data = import_data("./"+ds+"data.out")
+        w2,b2 = extract_wb(w1,b1,sess)
+    elif not train:
+        # Import saved network parameters
+        w1,b1,activation_function,dims,ydim, old_epoch = import_wb("./"+ns+"model.pkl",sess)
+        w2,b2 = extract_wb(w1,b1,sess)
+        if type(data) is tuple:
+            test_data = data[0]
+        else:
+            test_data = data
+    
+    X = tf.placeholder("float", shape=[None, dims])
+    y = tf.placeholder("float", shape=[None, ydim])
+    
+    # Forward propagation
+    
+    if activation_function == 'sigmoid':
+        yhat = forwardprop_sigmoid(X, w1, b1)
+    elif activation_function == 'relu':
+        yhat = forwardprop_relu(X, w1, b1)
+    elif activation_function == 'tanh':
+        yhat = forwardprop_tanh(X, w1, b1)
+    else:
+        yhat = forwardprop(X, w1, b1)
+    
+    if train:
+        # Backward propagation
+        cost = (y-yhat)**2
+        updates = tf.train.GradientDescentOptimizer(learning_rate).minimize(cost)
+        
+        # Initialize everything else
+        if not continue_train:
+            init = tf.global_variables_initializer()
+            sess.run(init)
+            #with open("./"+ds+"data.out",'wb') as f:
+            #    pickle.dump([test_data,training_data],f)
+        # Perform num training epochs
+        if num < 10:
+            modNum = 1
+        else:
+            modNum = int(num/10)
+        for epoch in range(num):
+            sess.run(updates, feed_dict={X: training_data[0], y: training_data[1]})
+            if epoch % modNum == 0:
+                if comparison_function == 'rmse':
+                    train_accuracy = np.mean(abs(training_data[1]-sess.run(yhat, feed_dict={X: training_data[0]}))**2)**0.5
+                    test_accuracy  = np.mean(abs(test_data[1]-sess.run(yhat, feed_dict={X: test_data[0]}))**2)**0.5
+                if comparison_function == 'mae':
+                    train_accuracy = np.mean(abs(training_data[1]-sess.run(yhat, feed_dict={X: training_data[0]})))
+                    test_accuracy  = np.mean(abs(test_data[1]-sess.run(yhat, feed_dict={X: test_data[0]})))
+                elif comparison_function == 'sae':
+                    train_accuracy = np.sum(abs(training_data[1]-sess.run(yhat, feed_dict={X: training_data[0]})))/training_data[1].shape[0]
+                    test_accuracy  = np.sum(abs(test_data[1]-sess.run(yhat, feed_dict={X: test_data[0]})))/test_data[1].shape[0]
+                #print(test_data[1][0])
+                #print(sess.run(yhat, feed_dict={X: test_data[0]})[0])
+                print("Epoch = %d, train rmse = %.2f, test rmse = %.2f"
+                      % (old_epoch+epoch + 1, train_accuracy, test_accuracy))
+        
+                # Save network parameters using pickle
+                if ns[0:2] == "..":
+                    save_path = "./"+ns+"model.pkl"
+                else:
+                    save_path = ns+"model.pkl"
+                    
+                with open(save_path,'wb') as f:
+                    w2,b2 = extract_wb(w1,b1,sess)
+                    pickle.dump([w2,b2,activation_function,epoch+old_epoch+1],f)
+                    
+        # Generate test prediction
+        test_prediction = sess.run(yhat, feed_dict={X: test_data[0]})
+        
+        # Close session
+        sess.close()
+        
+        # Return training and test datas, path to network parameters, test predictions
+        return training_data, test_data, save_path, test_prediction
+    else:
+        # Generate test prediction
+        test_prediction = sess.run(yhat, feed_dict={X: test_data})
+        w2,b2 = extract_wb(w1,b1,sess)
+        
+        # Close session
+        sess.close()
+        
+        # Return training and test datas, path to network parameters, test predictions
+        return test_prediction, test_data
+
+
+
+
+
+
+
+
+
+
+
 def init_weights(shape, stddev=0.1):
     ''' init_weights: This function creates a tensorflow variable of specified
         size. Values are initialized using a normal distribution.
@@ -556,13 +752,13 @@ if __name__ == "__main__":
     indir = ['../networkData/20180213/']
     #outdir = '../networkData/output/'
     outdir = indir[0]+'output/'
-    dataRawFile = indir[0]+'data.raw'
+    dataRawFile = indir[0]+'dataCluster.raw'
     
     # Define which parametric study to load
     study2use = 3
-    neu = [2506]
-    num = 1001
-    lr = 10**-9
+    neu = [100]
+    num = 11
+    lr = 10**-8
     af = 'custom'
     svdInputs = False
     basenumber = 5
@@ -585,8 +781,8 @@ if __name__ == "__main__":
         dataFile = dataRawFile+'.svd' #indir[0]+'dataSvd.out'
     else:
         dataFile = dataRawFile+'.out'
-    #datas = gd.loadCandidates(indir,dataRawFile,forceRebuild=False)
-    datas = []
+    datas = gd.loadCandidates(indir,dataRawFile,forceRebuild=False)
+    #datas = []
     #datas = gd.datasRemoveKey(datas,'In_WindX')
     #datas = gd.datasRemoveKey(datas,'In_WindY')
     #datas = gd.datasRemoveKey(datas,'In_VegetationIndexA')

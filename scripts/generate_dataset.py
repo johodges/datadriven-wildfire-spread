@@ -5,8 +5,8 @@ Created on Fri Jan 26 13:47:32 2018
 @author: JHodges
 """
 
-import matplotlib
-matplotlib.use('agg')
+#import matplotlib
+#matplotlib.use('agg')
 import matplotlib.pyplot as plt
 
 import util_common as uc
@@ -1350,6 +1350,7 @@ if __name__ == "__main__":
                                     dataExtract = None
                             else:
                                 print("Skipping satelliteTime: %s exists"%(fileName))
+                                dataExtract = None
                         else:
                             print("no Candidates on time %s"%(queryTimestr))
                             dataExtract = None
