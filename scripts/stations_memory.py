@@ -91,27 +91,27 @@ case = 4
 #datename = '2016025.h'
 
 if case == 0:
-    datadir = "E:/WildfireResearch/data/aqua_activefires/"
+    datadir = "G:/WildfireResearch/data/aqua_activefires/"
     datename = '2016033.h'
     sdsname = 'FireMask'
     pixels = 1200
 elif case == 1:
-    datadir = "E:/WildfireResearch/data/aqua_temperature/"
+    datadir = "G:/WildfireResearch/data/aqua_temperature/"
     datename = '2016033.h'
     sdsname = 'LST_Day_1km'
     pixels = 1200
 elif case == 2:
-    datadir = "E:/WildfireResearch/data/aqua_vegetation/"
+    datadir = "G:/WildfireResearch/data/aqua_vegetation/"
     datename = '2016025.h'
     sdsname = '1 km 16 days NDVI'
     pixels = 1200
 elif case == 3:
-    datadir = "E:/WildfireResearch/data/modis_burnedarea/"
+    datadir = "G:/WildfireResearch/data/modis_burnedarea/"
     datename = '2016032.h'
     sdsname = 'burndate'
     pixels = 2400
 elif case == 4:
-    datadir = "E:/WildfireResearch/data/terra_daily_activefires/"
+    datadir = "G:/WildfireResearch/data/terra_daily_activefires/"
     datename = '2017137.h'
     sdsname = 'FireMask'
     pixels = 1200

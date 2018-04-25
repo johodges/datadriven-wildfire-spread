@@ -55,9 +55,9 @@ def generateEnvironment(data_dir="/C/Users/JHodges/My\ Documents/wildfire-resear
 
 def findFilePaths(inputFile,outputFile,geoFile,
                   pdir="C:/Users/JHodges/Documents/wildfire-research/tools/MRTSwath_download_Win/MRTSwath/bin",
-                  indir="E:/WildfireResearch/data/terra_hourly_activefires",
-                  outdir="E:/WildfireResearch/data/terra_hourly_activefires_rp",
-                  geodir="E:/WildfireResearch/data/terra_geolocation"):
+                  indir="G:/WildfireResearch/data/terra_hourly_activefires",
+                  outdir="G:/WildfireResearch/data/terra_hourly_activefires_rp",
+                  geodir="G:/WildfireResearch/data/terra_geolocation"):
     ''' This function will generate system paths necessary to use the
     MODIS remapping tool. Unused in the custom remapping.
     '''
@@ -84,9 +84,9 @@ def buildCommand(programPath,inputPath,outputPath,geoPath):
                  '-opsz=1000']
     return myCommand
 
-def remapUsingTool(indir="E:/WildfireResearch/data/terra_hourly_activefires",
-                   outdir="E:/WildfireResearch/data/terra_hourly_activefires_rp",
-                   geodir="E:/WildfireResearch/data/terra_geolocation"):
+def remapUsingTool(indir="G:/WildfireResearch/data/terra_hourly_activefires",
+                   outdir="G:/WildfireResearch/data/terra_hourly_activefires_rp",
+                   geodir="G:/WildfireResearch/data/terra_geolocation"):
     ''' This function will remap data from the input directory to the Level 3
     MODIS grid using the MODIS remapping tool.
     '''
@@ -121,7 +121,7 @@ def remapUsingTool(indir="E:/WildfireResearch/data/terra_hourly_activefires",
         print("Percent complete: %.6f"%(i/len(matched_files)))
 
 def removeOutsideAndReshape(lat,lon,data,
-                            lat_lmt = [31,44],
+                            lat_lmt = [30,44],
                             lon_lmt = [-126,-112]):
     ''' This function will reduce the matrix size of the dataset using user
     defined latitude and longitude limits.
@@ -143,7 +143,7 @@ def removeOutsideAndReshape(lat,lon,data,
 
 
 def gridAndResample(data,
-                    lat_lmt = [31,44],
+                    lat_lmt = [30,44],
                     lon_lmt = [-126,-112],
                     pxPerDegree = 120,
                     ds=1,
@@ -209,9 +209,9 @@ def generateCustomHdf(data,outdir,sdsname,
     d1.endaccess()
     hdfFile.end()
 
-def matchFilesToGeo(indir="E:/WildfireResearch/data/terra_hourly_activefires/",
-                    geodir = "E:/WildfireResearch/data/terra_geolocation/",
-                    outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/",
+def matchFilesToGeo(indir="G:/WildfireResearch/data/terra_hourly_activefires/",
+                    geodir = "G:/WildfireResearch/data/terra_geolocation/",
+                    outdir = "G:/WildfireResearch/data/terra_hourly_activefires_jh/",
                     splitStr = '\\MOD14.A'):
     ''' This function finds all data measurements where the geolocation data
     of the satellite is also available.
@@ -271,9 +271,9 @@ def splitDayAndNight(lats,lons,datas,names,times,
             datas[inds].copy(),names.copy(),nfileName)    
     return day, night
 
-def remapUsingCustom(indir="E:/WildfireResearch/data/terra_hourly_activefires/",
-                     geodir = "E:/WildfireResearch/data/terra_geolocation/",
-                     outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/",
+def remapUsingCustom(indir="G:/WildfireResearch/data/terra_hourly_activefires/",
+                     geodir = "G:/WildfireResearch/data/terra_geolocation/",
+                     outdir = "G:/WildfireResearch/data/terra_hourly_activefires_jh/",
                      sdsname_in='fire mask',
                      sdsname_out='FireMask',
                      splitStr = 'MOD14.A',
@@ -408,7 +408,7 @@ def queryTimeCustomHdf2(indir,qDT):
     return times, queryTime
 
 def queryTimeCustomHdfbkup(qDT,
-                       datadir="E:/WildfireResearch/data/terra_hourly_activefires_jh/",
+                       datadir="G:/WildfireResearch/data/terra_hourly_activefires_jh/",
                        sdsname='FireMask',
                        timezone=0):
     files, times = loadTimeFileCustomHdf(datadir)
@@ -424,7 +424,7 @@ def queryTimeCustomHdfbkup(qDT,
 """
     
 def queryTimeCustomHdf(qDT,
-                       datadirs="E:/WildfireResearch/data/terra_hourly_activefires_jh/",
+                       datadirs="G:/WildfireResearch/data/terra_hourly_activefires_jh/",
                        sdsname='FireMask',
                        timezone=0):
     ''' This function will query the custom Level 3 hdf database for a
@@ -445,7 +445,7 @@ def queryTimeCustomHdf(qDT,
     for datadir in datadirs:
         files, times = loadTimeFileCustomHdf(datadir)
         if files is None:
-            _, outfile = updateTimeFileCustomHdf(indir,timezone=timezone)
+            _, outfile = updateTimeFileCustomHdf(datadir,timezone=timezone)
             files, times = loadTimeFileCustomHdf(outfile)
         ind = np.where(((times-queryTime)[:,0] < 0) & ((times-queryTime)[:,1] > 0))[0]
         if len(ind) > 0:
@@ -521,22 +521,22 @@ def loadTimeFileCustomHdf(indir):
 
 if __name__ == "__main__":
     
-    satellite = 'terra'
-    case = 0
+    satellite = 'aqua'
+    case = 2
     
     if satellite == 'terra':
-        indir="E:/WildfireResearch/data/terra_hourly_activefires/"
-        geodir = "E:/WildfireResearch/data/terra_geolocation/"
-        #outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/"
-        outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/"
+        indir="G:/WildfireResearch/data/terra_hourly_activefires/"
+        geodir = "G:/WildfireResearch/data/terra_geolocation/"
+        #outdir = "G:/WildfireResearch/data/terra_hourly_activefires_jh/"
+        outdir = "G:/WildfireResearch/data/terra_hourly_activefires_jh2/"
         dayLowThresh = 1.0
         dayUpThresh = 13.0
         splitStr = 'MOD14.A'
     elif satellite == 'aqua':
-        indir="E:/WildfireResearch/data/aqua_hourly_activefires/"
-        geodir = "E:/WildfireResearch/data/aqua_geolocation/"
-        #outdir = "E:/WildfireResearch/data/terra_hourly_activefires_jh/"
-        outdir = "E:/WildfireResearch/data/aqua_hourly_activefires_jh/"
+        indir="G:/WildfireResearch/data/aqua_hourly_activefires/"
+        geodir = "G:/WildfireResearch/data/aqua_geolocation/"
+        #outdir = "G:/WildfireResearch/data/terra_hourly_activefires_jh/"
+        outdir = "G:/WildfireResearch/data/aqua_hourly_activefires_jh2/"
         dayLowThresh = 4.0
         dayUpThresh = 16.0
         splitStr = 'MYD14.A'

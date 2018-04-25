@@ -24,6 +24,7 @@ import util_common as uc
 import re
 import sys
 import math
+import scipy.interpolate as scpi
 
 def coordinatesFromTile(tile):
     ''' This function will return the longitude and latitude MODIS Level 3
@@ -85,6 +86,10 @@ def loadSdsData(file,sdsname):
     sds_obj = f.select(sdsname)
     data = sds_obj.get()
     return data
+
+def returnDataFile(file):
+    f = phdf.SD(file,phdf.SDC.READ)
+    return f    
 
 def findXmlTimes(datadir,tiles):
     ''' This function finds the start and end times of each .hdf.xml file
@@ -270,7 +275,7 @@ def buildContour(files,queryDateTime,
     return tiles_lat, tiles_lon, tiles_data
     
 def findQuerySdsData(queryDateTime,
-                     datadir="E:/WildfireResearch/data/aqua_vegetation/",
+                     datadir="G:/WildfireResearch/data/aqua_vegetation/",
                      tiles=['h08v04','h08v05','h09v04'],
                      composite=False,
                      use_all=False,
@@ -330,6 +335,194 @@ def compareCandidates(old_pts,new_pts,dist_thresh=0.5):
     matched_pts = np.array(matched_pts)
     return matched_pts
 
+
+
+
+
+def buildOneDayContour(files,sdsname='sur_refl_b01',targetPixels=1200):
+    pixels = loadSdsData(files[0],sdsname).shape[1]
+    zoomLevel = targetPixels/pixels
+    tiles = findAllTilesFromFiles(files)
+    tiles_grid_dict, tiles_grid = uc.mapTileGrid(tiles,targetPixels,coordinatesFromTile)
+    tiles_data = tiles_grid.copy()
+    tiles_lat = tiles_grid.copy()
+    tiles_lon = tiles_grid.copy()
+    for file in files:
+        data = loadSdsData(file,sdsname)
+        data = zoom(data,zoomLevel)
+        tile = extractTileFromFile(file)
+        lat, lon = invertModisTile(tile,pixels=targetPixels)
+        if data is not None:
+            tiles_data = uc.fillTileGrid(tiles_data,tiles_grid_dict,tile,data,targetPixels)
+        tiles_lat = uc.fillTileGrid(tiles_lat,tiles_grid_dict,tile,lat,targetPixels)
+        tiles_lon = uc.fillTileGrid(tiles_lon,tiles_grid_dict,tile,lon,targetPixels)
+    return tiles_lat, tiles_lon, tiles_data
+
+def list2stats(datas,name=''):
+    dataMedian = np.median(datas,axis=0)
+    dataMean = np.nanmean(datas,axis=0)
+    dataMin = np.nanmin(datas,axis=0)
+    dataMax = np.nanmax(datas,axis=0)
+    uc.dumpPickle([dataMin,dataMax,dataMedian,dataMean],name)
+    return dataMin, dataMax, dataMedian, dataMean
+
+def generateVegetationStats(datadir="G:/WildfireResearch/data/aqua_reflectance/",
+                            outdir="E:/projects/wildfire-research/data-test/",
+                            tiles=['h08v04','h08v05','h09v04']):
+    ''' This function will store out images with the min, max, median, and mean
+    values of VIGR, NDVI, VARI, and NDI16. These are needed for moisture
+    content estimation.
+    '''
+    files = glob.glob(datadir+'*.hdf')
+    dates = []
+    for file in files:
+        dates.append(file.split("//")[1].split('.')[1])
+    dates = list(set(dates))
+    ndvis = []
+    varis = []
+    ndi16s = []
+    vigrs = []
+    for i in range(0,len(dates)):#date in dates:
+        date = dates[i]
+        files = glob.glob(datadir+'/*'+date+'*.hdf')
+        goodFiles = []
+        for file in files:
+            tileCheck = False
+            for tile in tiles:
+                if tile in file:
+                    tileCheck = True
+            if tileCheck:
+                goodFiles.append(file)
+        lat,lon,rho1 = buildOneDayContour(goodFiles,sdsname='sur_refl_b01')
+        lat,lon,rho2 = buildOneDayContour(goodFiles,sdsname='sur_refl_b02')
+        lat,lon,rho3 = buildOneDayContour(goodFiles,sdsname='sur_refl_b03')
+        lat,lon,rho4 = buildOneDayContour(goodFiles,sdsname='sur_refl_b04')
+        lat,lon,rho6 = buildOneDayContour(goodFiles,sdsname='sur_refl_b06')
+        
+        num_ndvi = np.array(rho2-rho1,dtype=np.float32)
+        den_ndvi = np.array(rho2+rho1,dtype=np.float32)
+        ndvi = np.zeros(num_ndvi.shape)
+        ndvi[den_ndvi > 0] = num_ndvi[den_ndvi > 0]/den_ndvi[den_ndvi > 0]
+        ndvis.append(ndvi)
+        
+        num_vari = rho4-rho1
+        den_vari = rho4+rho1-rho3
+        vari = np.zeros(num_vari.shape)
+        vari[den_vari > 0] = num_vari[den_vari > 0]/den_vari[den_vari > 0]
+        varis.append(vari)
+        
+        num_ndi16 = rho2-rho6
+        den_ndi16 = rho2+rho6
+        ndi16 = np.zeros(num_ndi16.shape)
+        ndi16[den_ndi16 > 0] = num_ndi16[den_ndi16 > 0]/den_ndi16[den_ndi16 > 0]
+        ndi16s.append(ndi16)
+        
+        num_vigr = rho4-rho1
+        den_vigr = rho4+rho1
+        vigr = np.zeros(num_vigr.shape)
+        vigr[den_vigr > 0] = num_vigr[den_vigr > 0]/den_vigr[den_vigr > 0]
+        vigrs.append(vigr)
+    
+    vigrMin, vigrMax, vigrMedian, vigrMean = list2stats(vigrs,name=outdir+'vigrStats2016.pkl')
+    ndviMin, ndviMax, ndviMedian, ndviMean = list2stats(ndvis,name=outdir+'ndviStats2016.pkl')
+    variMin, variMax, variMedian, variMean = list2stats(varis,name=outdir+'variStats2016.pkl')
+    ndi16Min, ndi16Max, ndi16Median, ndi16Mean = list2stats(ndi16s,name=outdir+'ndi16Stats2016.pkl')
+    
+    uc.dumpPickle([dates,lat,lon,vigrs],outdir+'vigrAll.pkl')
+    uc.dumpPickle([dates,lat,lon,ndvis],outdir+'ndvisAll.pkl')
+    uc.dumpPickle([dates,lat,lon,varis],outdir+'varisAll.pkl')
+    uc.dumpPickle([dates,lat,lon,ndi16s],outdir+'ndi16sAll.pkl')
+    
+    return dates, ndvis, varis, ndi16s, vigrs
+
+def getLfmChap(vari,lfmLowerThresh=0,lfmUpperThresh=200,
+               vigrFile="E:/projects/wildfire-research/data-test/vigrStats2016.pkl"):
+    ''' This function will return chapperal moisture estimation based on
+    VARI measurement.
+    '''
+    vigrMin, vigrMax, vigrMedian, vigrMean = uc.readPickle(vigrFile)
+    lfm = 97.8+471.6*vari-293.9*vigrMedian-816.2*vari*(vigrMax-vigrMin)
+    lfm[lfm<lfmLowerThresh] = lfmLowerThresh
+    lfm[lfm>lfmUpperThresh] = lfmUpperThresh
+    return lfm
+
+def getLfmCss(vari,lfmLowerThresh=0,lfmUpperThresh=200,
+              ndi16File="E:/projects/wildfire-research/data-test/ndi16Stats2016.pkl",
+              ndviFile="E:/projects/wildfire-research/data-test/ndviStats2016.pkl"):
+    ''' This function will return coastal ss moisture estimation beased on
+    VARI measurement.
+    '''
+    ndi16Min, ndi16Max, ndi16Median, ndi16Mean = uc.readPickle(ndi16File)
+    ndviMin, ndviMax, ndviMedian, ndviMean = uc.readPickle(ndviFile)
+    lfm = 179.2 + 1413.9*vari-450.5*ndi16Median-1825.2*vari*(ndviMax-ndviMin)
+    lfm[lfm<lfmLowerThresh] = lfmLowerThresh
+    lfm[lfm>lfmUpperThresh] = lfmUpperThresh
+    return lfm
+
+def buildCanopyData(datadir='G:/WildfireResearch/data/terra_canopy/',
+                    outdir = "E:/projects/wildfire-research/data-test/",
+                    sdsname='Percent_Tree_Cover',
+                    outname='canopy.pkl'):
+    ds = 1
+    method='linear'
+    files = glob.glob(datadir+'/*.hdf')
+    #f = returnDataFile(files[0])
+    lat,lon,data = buildOneDayContour(files,sdsname=sdsname,targetPixels=1200)
+    data[lat==0] = np.nan
+    lat[lat == 0] = np.nan
+    lon[lon == 0] = np.nan
+    data[data > 100] = 100
+    
+    lat = np.reshape(lat,(lat.shape[0]*lat.shape[1]))
+    lon = np.reshape(lon,(lon.shape[0]*lon.shape[1]))
+    values = np.reshape(data,(data.shape[0]*data.shape[1]))
+
+    inds = np.where(~np.isnan(lat) & ~np.isnan(lon) & ~np.isnan(values))
+    lat = lat[inds]
+    lon = lon[inds]
+    values = values[inds]
+    
+    pts = np.zeros((len(lat),2))
+    pts[:,0] = lat
+    pts[:,1] = lon
+    
+    newpts, sz = getCustomGrid(reshape=True)
+
+    remapped = scpi.griddata(pts[0::ds],values[0::ds],newpts,method=method)
+    
+    data = np.reshape(remapped,(sz[0],sz[1]))
+    latitude, longitude = getCustomGrid(reshape=False)
+    
+    uc.dumpPickle([latitude,longitude,data],outdir+outname)
+    return latitude, longitude, data
+
+
+def getCustomGrid(lat_lmt = [30,44],
+                  lon_lmt = [-126,-112],
+                  pxPerDegree = 120,
+                  ds=1,
+                  method='nearest',
+                  reshape=False):
+    ''' This function will generate custom MODIS grid
+    ''' 
+    
+    lat_lnsp = np.linspace(np.min(lat_lmt),np.max(lat_lmt),
+                           (np.max(lat_lmt)-np.min(lat_lmt)+1)*pxPerDegree)
+    lon_lnsp = np.linspace(np.min(lon_lmt),np.max(lon_lmt),
+                           (np.max(lon_lmt)-np.min(lon_lmt)+1)*pxPerDegree)
+    lon_grid, lat_grid = np.meshgrid(lon_lnsp,lat_lnsp)
+    
+    if reshape:
+        lon_lnsp2 = np.reshape(lon_grid,(lon_grid.shape[0]*lon_grid.shape[1]))
+        lat_lnsp2 = np.reshape(lat_grid,(lat_grid.shape[0]*lat_grid.shape[1]))
+        newpts = np.zeros((len(lat_lnsp2),2))
+        newpts[:,0] = lat_lnsp2
+        newpts[:,1] = lon_lnsp2
+        sz = lat_grid.shape
+        return newpts, sz
+    else:
+        return lat_grid, lon_grid
+
 if __name__ == '__main__':
     ''' case 0: loads modis vegetation index at queryDateTime and plots for
                 the whole United states
@@ -343,14 +536,14 @@ if __name__ == '__main__':
     
     # User inputs
     queryDateTime = dt.datetime(year=2016,month=6,day=27,hour=5,minute=53)
-    case = 1
+    case = 5
     
     if case == 0:
         tiles = None
         states = 'All'
         #Find vegetation index at queryDateTime
         vi_lat,vi_lon,vi_data = findQuerySdsData(queryDateTime,tiles=tiles,composite=True,
-                                                 datadir="E:/WildfireResearch/data/aqua_vegetation/",
+                                                 datadir="G:/WildfireResearch/data/aqua_vegetation/",
                                                  sdsname='1 km 16 days NDVI')
         vi_fig = uc.plotContourWithStates(vi_lat,vi_lon,vi_data,states=states,label='VI')
         
@@ -363,7 +556,7 @@ if __name__ == '__main__':
         states = 'California'
         # Find activefires at queryDateTime
         af_lat,af_lon,af_data = findQuerySdsData(queryDateTime,tiles=tiles,composite=False,
-                                                 datadir="E:/WildfireResearch/data/aqua_daily_activefires/",
+                                                 datadir="G:/WildfireResearch/data/aqua_daily_activefires/",
                                                  sdsname='FireMask')
         af_fig = uc.plotContourWithStates(af_lat,af_lon,af_data,states=states,
                                           clim=np.linspace(0,9,10),label='AF')
@@ -377,15 +570,15 @@ if __name__ == '__main__':
         states = 'California'
         # Find activefires at queryDateTime
         af_lat,af_lon,af_data = findQuerySdsData(queryDateTime,tiles=tiles,composite=False,
-                                                 datadir="E:/WildfireResearch/data/aqua_daily_activefires/",
+                                                 datadir="G:/WildfireResearch/data/aqua_daily_activefires/",
                                                  sdsname='FireMask')
         #Find vegetation index at queryDateTime
         vi_lat,vi_lon,vi_data = findQuerySdsData(queryDateTime,tiles=tiles,composite=True,
-                                                 datadir="E:/WildfireResearch/data/aqua_vegetation/",
+                                                 datadir="G:/WildfireResearch/data/aqua_vegetation/",
                                                  sdsname='1 km 16 days NDVI')
         #Find burned area at queryDateTime
         ba_lat,ba_lon,ba_data = findQuerySdsData(queryDateTime,tiles=tiles,composite=True,
-                                                 datadir="E:/WildfireResearch/data/modis_burnedarea/",
+                                                 datadir="G:/WildfireResearch/data/modis_burnedarea/",
                                                  sdsname='burndate')
         af_fig = uc.plotContourWithStates(af_lat,af_lon,af_data,states=states,
                                           clim=np.linspace(0,9,10),label='AF')
@@ -409,7 +602,7 @@ if __name__ == '__main__':
             af_name = outdir+'AF2_'+queryDateTime.isoformat()[0:13]+'.png'
         
             af_lat,af_lon,af_data = findQuerySdsData(queryDateTime,tiles=tiles,composite=False,
-                                                     datadir="E:/WildfireResearch/data/terra_daily_activefires/",
+                                                     datadir="G:/WildfireResearch/data/terra_daily_activefires/",
                                                      sdsname='FireMask')
             if af_data is not None:
                 af_fig = uc.plotContourWithStates(af_lat,af_lon,af_data,states=states,
@@ -433,3 +626,35 @@ if __name__ == '__main__':
                 old_pts = np.array([])
         #print(match_pts)
         print("AF File Size: %.4f MB"%(af_mem))
+        
+        
+        
+    if case == 4:
+        datadir = "E:/projects/wildfire-research/data-test/"
+    
+        dates, lat, lon, varis = uc.readPickle(datadir+'varisAll.pkl')
+        
+        for i in range(0,1):#len(varis)):
+            lfm_chap = getLfmChap(varis[i])
+            #lfm_css = getLfmCss(varis[i])
+            uc.plotContourWithStates(lat,lon,lfm_chap,
+                                     clim=np.linspace(0,200,11))
+                                     #saveFig=True,saveName=datadir+"lfmCss_"+dates[i]+".png",)
+    
+    if case == 5:
+        lat, lon, data = buildCanopyData()
+        uc.plotContourWithStates(lat,lon,data,clim=np.linspace(0,100,11))
+        """
+        datadir = 'G:/WildfireResearch/data/terra_canopy/'
+        outdir = "E:/projects/wildfire-research/data-test/"
+        files = glob.glob(datadir+'/*.hdf')
+        #f = returnDataFile(files[0])
+        lat,lon,data = buildOneDayContour(files,sdsname='Percent_Tree_Cover',targetPixels=1200)
+        data[lat==0] = np.nan
+        lat[lat == 0] = np.nan
+        lon[lon == 0] = np.nan
+        data[data > 100] = 100
+        uc.plotContourWithStates(lat,lon,data,clim=np.linspace(0,100,11))
+        uc.dumpPickle([lat,lon,data],outdir+'canopy.pkl')
+        """
+        

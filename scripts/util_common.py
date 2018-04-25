@@ -260,3 +260,170 @@ def makeGIF(indir,outfile,ext='.png',fps=None):
                 print("Memory full.")
         writer.close()
 
+def findTensorflowGPUs():
+    from tensorflow.python.client import device_lib
+    local_device_protos = device_lib.list_local_devices()
+    return [x.name for x in local_device_protos if x.device_type == 'GPU']
+
+
+def plotImageList(datas,names,
+                     clims=None,closeFig=None,
+                     saveFig=False,saveName=''):
+    totalPlots = np.ceil(float(len(datas))**0.5)
+    colPlots = totalPlots
+    rowPlots = np.ceil((float(len(datas)))/colPlots)
+    currentPlot = 0
+    
+    if saveFig:
+        fntsize = 20
+        lnwidth = 5
+        fig = plt.figure(figsize=(colPlots*12,rowPlots*10))#,tight_layout=True)      
+        if closeFig is None:
+            closeFig = True
+    else:
+        fig = plt.figure(figsize=(colPlots*6,rowPlots*5))#,tight_layout=True)
+        fntsize = 20
+        lnwidth = 2
+        if closeFig is None:
+            closeFig = False
+        
+    xmin = 0
+    xmax = datas[0].shape[1]
+    xticks = np.linspace(xmin,xmax,int(round((xmax-xmin)/10)+1))
+    ymin = 0
+    ymax = datas[0].shape[0]
+    yticks = np.linspace(ymin,ymax,int(round((ymax-ymin)/10)+1))
+
+    for i in range(0,len(names)):
+        key = names[i]
+        currentPlot = currentPlot+1
+
+        ax = fig.add_subplot(rowPlots,colPlots,currentPlot)
+        ax.tick_params(axis='both',labelsize=fntsize)
+        plt.xticks(xticks)
+        plt.yticks(yticks)
+        #plt.xlabel('Longitude',fontsize=fntsize)
+        #plt.ylabel('Latitude',fontsize=fntsize)
+        plt.title(key,fontsize=fntsize)
+
+        if clims is None:
+            clim = np.linspace(0,1,10)
+            label = ''
+        else:
+            clim = clims[i]
+            label = ''
+        img = ax.imshow(datas[i],cmap='jet',vmin=clim[0],vmax=clim[-1])#,vmin=0,vmax=1)
+        #img = ax.contourf(self.longitude,self.latitude,getattr(self,key),levels=clim,cmap=cmap)
+        img_cb = plt.colorbar(img,ax=ax,label=label)
+
+        img_cb.set_label(label=label,fontsize=fntsize)
+        img_cb.ax.tick_params(axis='both',labelsize=fntsize)
+        ax.grid(linewidth=lnwidth/4,linestyle='-.',color='k')
+        for ln in ax.lines:
+            ln.set_linewidth(lnwidth)
+    if saveFig:
+        fig.savefig(saveName)
+        
+    if closeFig:
+        plt.clf()
+        plt.close(fig)
+
+def plotGriddedList(datas,
+         saveFig=False,
+         closeFig=None,
+         saveName='',
+         clim=None,
+         cmap='jet',
+         label='None'):
+    ''' This function will plot the gridded measurement pair
+    '''
+    
+    inNum, outNum = datas.countData()
+    inNames, outNames = datas.getDataNames()
+    inTime, outTime = datas.strTime()
+    
+    
+    totalPlots = np.ceil((float(inNum)+float(outNum))**0.5)
+    colPlots = totalPlots
+    rowPlots = np.ceil((float(inNum)+float(outNum))/colPlots)
+    currentPlot = 0
+    
+    if saveFig:
+        fntsize = 40
+        lnwidth = 10
+        fig = plt.figure(figsize=(colPlots*24,rowPlots*20))#,tight_layout=True)      
+        if closeFig is None:
+            closeFig = True
+    else:
+        fig = plt.figure(figsize=(colPlots*6,rowPlots*5))#,tight_layout=True)
+        fntsize = 20
+        lnwidth = 2
+        if closeFig is None:
+            closeFig = False
+    
+    xmin = np.round(np.min(datas.longitude),1)
+    xmax = np.round(np.max(datas.longitude),1)
+    xticks = np.linspace(xmin,xmax,int(round((xmax-xmin)/0.1)+1))
+    ymin = np.round(np.min(datas.latitude),1)
+    ymax = np.round(np.max(datas.latitude),1)
+    yticks = np.linspace(ymin,ymax,int(round((ymax-ymin)/0.1)+1))
+
+
+
+    names = inNames+outNames
+    for i in range(0,len(names)):
+        key = names[i]
+        currentPlot = currentPlot+1
+
+        ax = fig.add_subplot(rowPlots,colPlots,currentPlot)
+        ax.tick_params(axis='both',labelsize=fntsize)
+        plt.xticks(xticks)
+        plt.yticks(yticks)
+        plt.xlabel('Longitude',fontsize=fntsize)
+        plt.ylabel('Latitude',fontsize=fntsize)
+        plt.title(key,fontsize=fntsize)
+        print(clim)
+        if clim is None:
+            if 'FireMask' in key:
+                clim2 = np.linspace(0,9,10)
+                label = 'AF'
+            elif 'Elevation' in key:
+                clim2 = np.linspace(-1000,5000,7)
+                label = 'Elev [m]'
+            elif 'WindX' in key:
+                clim2 = np.linspace(-6,6,13)
+                label = 'u [m/s]'
+            elif 'WindY' in key:
+                clim2 = np.linspace(-6,6,13)
+                label = 'v [m/s]'
+            elif 'VegetationIndex' in key:
+                clim2 = np.linspace(-4000,10000,8)
+                label = 'NVDIx1000'
+            elif 'Canopy' in key:
+                clim2 = np.linspace(0,100,11)
+                label = 'Canopy'
+            else:
+                clim2 = np.linspace(0,9,10)
+        else:
+            label = ''
+            clim2 = clim
+            
+        img = ax.contourf(datas.longitude,datas.latitude,getattr(datas,key),levels=clim2,cmap=cmap)
+        img_cb = plt.colorbar(img,ax=ax,label=label)
+
+        img_cb.set_label(label=label,fontsize=fntsize)
+        img_cb.ax.tick_params(axis='both',labelsize=fntsize)
+        ax.grid(linewidth=lnwidth/4,linestyle='-.',color='k')
+        for ln in ax.lines:
+            ln.set_linewidth(lnwidth)
+            
+    if saveFig:
+        fig.savefig(saveName)
+        
+    if closeFig:
+        plt.clf()
+        plt.close(fig)
+
+if __name__ == "__main__":
+    devices = findTensorflowGPUs()
+    print(devices)

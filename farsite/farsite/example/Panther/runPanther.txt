@@ -1,0 +1,2 @@
+commonDir/farsite/example/Panther/238648_cust_fm94.lcp commonDir/farsite/example/Panther/cust.input commonDir/farsite/example/Panther/ignit2.shp 0 commonDir/farsite/example/Panther/cust 0
+commonDir/farsite/example/Panther/1177973.lcp commonDir/farsite/example/Panther/1177973.input commonDir/farsite/example/Panther/1177973_NTFBIgnition.shp 1177973_NTFBBarrier.shp commonDir/farsite/example/Panther/1177973 0

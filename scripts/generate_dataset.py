@@ -16,6 +16,7 @@ import parse_asos_file as pa
 import remapSwathData as rsd
 
 from parse_asos_file import ASOSMeasurementList, ASOSStation
+import pyhdf.SD as phdf
 #import matplotlib.pyplot as plt
 import datetime as dt
 import numpy as np
@@ -93,6 +94,12 @@ class GriddedMeasurement(object):
         pts[:,1] = lon
         return pts
     
+    def removeNans(self,points,values):
+        inds = np.where(~np.isnan(points[:,0]) & ~np.isnan(points[:,1]) & ~np.isnan(values))
+        newPoints = points[inds]
+        newValues = values[inds]
+        return newPoints, newValues
+    
     def remap(self,new_lat,new_lon,ds=10,method='linear'):
         ''' This will remap data, latitude, and longitude to a new grid
         specified by new_lat and new_lon matrices.
@@ -104,8 +111,10 @@ class GriddedMeasurement(object):
             method='nearest' nearest neighbor value will be used.
         '''
         oldpts = self.mats2pts(self.latitude,self.longitude)
-        newpts = self.mats2pts(new_lat,new_lon)
         values = np.reshape(self.data,(self.data.shape[0]*self.data.shape[1],))
+        newpts = self.mats2pts(new_lat,new_lon)
+        
+        oldpts, values = self.removeNans(oldpts,values)
         
         remapped = scpi.griddata(oldpts[0::ds],values[0::ds],newpts,method=method)
         
@@ -357,24 +366,30 @@ class GriddedMeasurementPair(object):
 
             if clim is None:
                 if 'FireMask' in key:
-                    clim = np.linspace(0,9,10)
+                    clim2 = np.linspace(0,9,10)
                     label = 'AF'
                 elif 'Elevation' in key:
-                    clim = np.linspace(-1000,5000,7)
+                    clim2 = np.linspace(-1000,5000,7)
                     label = 'Elev [m]'
                 elif 'WindX' in key:
-                    clim = np.linspace(-6,6,13)
+                    clim2 = np.linspace(-6,6,13)
                     label = 'u [m/s]'
                 elif 'WindY' in key:
-                    clim = np.linspace(-6,6,13)
+                    clim2 = np.linspace(-6,6,13)
                     label = 'v [m/s]'
                 elif 'VegetationIndex' in key:
-                    clim = np.linspace(-4000,10000,8)
+                    clim2 = np.linspace(-4000,10000,8)
                     label = 'NVDIx1000'
+                elif 'Canopy' in key:
+                    clim2 = np.linspace(0,100,11)
+                    label = 'Canopy'
+                else:
+                    clim2 = np.linspace(0,9,10)
             else:
                 label = ''
+                clim2 = clim
                 
-            img = ax.contourf(self.longitude,self.latitude,getattr(self,key),levels=clim,cmap=cmap)
+            img = ax.contourf(self.longitude,self.latitude,getattr(self,key),levels=clim2,cmap=cmap)
             img_cb = plt.colorbar(img,ax=ax,label=label)
 
             img_cb.set_label(label=label,fontsize=fntsize)
@@ -436,12 +451,12 @@ def loadDataByName(queryDateTime,dataName):
     queryDateTime for the provided dateName. Specific cases correspond to
     different import functions.
     '''
-    modOffset = 0.0
+    
     if dataName == 'FireMaskHourlyTA':
         lat, lon, dataRaw, timeStamp =  rsd.queryTimeCustomHdf(
                 queryDateTime,
-                datadirs=["E:/WildfireResearch/data/terra_hourly_activefires_jh/",
-                          "E:/WildfireResearch/data/aqua_hourly_activefires_jh/"],
+                datadirs=["G:/WildfireResearch/data/terra_hourly_activefires_jh/",
+                          "G:/WildfireResearch/data/aqua_hourly_activefires_jh/"],
                 sdsname='FireMask')
         data = []
         for i in range(0,len(dataRaw)):
@@ -452,7 +467,7 @@ def loadDataByName(queryDateTime,dataName):
     if dataName == 'FireMaskHourlyT':
         lat, lon, dataRaw, timeStamp =  rsd.queryTimeCustomHdf(
                 queryDateTime,
-                datadirs="E:/WildfireResearch/data/terra_hourly_activefires_jh/",
+                datadirs="G:/WildfireResearch/data/terra_hourly_activefires_jh/",
                 sdsname='FireMask')
         dataDateTime = dt.datetime.fromtimestamp(timeStamp)
         data = GriddedMeasurement(dataDateTime,lat,lon,dataRaw,'AF')
@@ -461,23 +476,23 @@ def loadDataByName(queryDateTime,dataName):
     elif dataName == 'FireMaskHourlyA':
         lat, lon, dataRaw, timeStamp =  rsd.queryTimeCustomHdf(
                 queryDateTime,
-                datadirs="E:/WildfireResearch/data/aqua_hourly_activefires_jh/",
+                datadirs="G:/WildfireResearch/data/aqua_hourly_activefires_jh/",
                 sdsname='FireMask')
         data = GriddedMeasurement(dataDateTime,lat,lon,dataRaw,'AF')
         data.clim = np.linspace(0,9,10)
         data.dataName = dataName
     elif dataName == 'FireMaskT':
         lat,lon,dataRaw = pm.findQuerySdsData(queryDateTime,composite=False,
-                                              datadir="E:/WildfireResearch/data/terra_daily_activefires/",
+                                              datadir="G:/WildfireResearch/data/terra_daily_activefires/",
                                               sdsname='FireMask')
-        data = GriddedMeasurement(queryDateTime.date(),lat,lon+modOffset,dataRaw,'AF')
+        data = GriddedMeasurement(queryDateTime.date(),lat,lon,dataRaw,'AF')
         data.clim = np.linspace(0,9,10)
         data.dataName = dataName
     elif dataName == 'FireMaskA':
         lat,lon,dataRaw = pm.findQuerySdsData(queryDateTime,composite=False,
-                                              datadir="E:/WildfireResearch/data/aqua_daily_activefires/",
+                                              datadir="G:/WildfireResearch/data/aqua_daily_activefires/",
                                               sdsname='FireMask')
-        data = GriddedMeasurement(queryDateTime.date(),lat,lon+modOffset,dataRaw,'AF')
+        data = GriddedMeasurement(queryDateTime.date(),lat,lon,dataRaw,'AF')
         data.clim = np.linspace(0,9,10)
         data.dataName = dataName
     elif dataName == 'Elevation':
@@ -506,27 +521,32 @@ def loadDataByName(queryDateTime,dataName):
         queryDateTime = dt.datetime(year=queryDateTime.year,month=queryDateTime.month,day=queryDateTime.day)
         #Find vegetation index at queryDateTime
         lat,lon,dataRaw = pm.findQuerySdsData(queryDateTime,composite=True,
-                                              datadir="E:/WildfireResearch/data/terra_vegetation/",
+                                              datadir="G:/WildfireResearch/data/terra_vegetation/",
                                               sdsname='1 km 16 days NDVI')
         
-        data = GriddedMeasurement(queryDateTime,lat,lon+modOffset,dataRaw,'VI')
+        data = GriddedMeasurement(queryDateTime,lat,lon,dataRaw,'VI')
         data.dataName = dataName
     elif dataName == 'VegetationIndexA':
         queryDateTime = dt.datetime(year=queryDateTime.year,month=queryDateTime.month,day=queryDateTime.day)
         #Find vegetation index at queryDateTime
         lat,lon,dataRaw = pm.findQuerySdsData(queryDateTime,composite=True,
-                                              datadir="E:/WildfireResearch/data/aqua_vegetation/",
+                                              datadir="G:/WildfireResearch/data/aqua_vegetation/",
                                               sdsname='1 km 16 days NDVI')
-        data = GriddedMeasurement(queryDateTime,lat,lon+modOffset,dataRaw,'VI')
+        data = GriddedMeasurement(queryDateTime,lat,lon,dataRaw,'VI')
         data.dataName = dataName
     elif dataName == 'BurnedArea':
         queryDateTime = dt.datetime(year=queryDateTime.year,month=queryDateTime.month,day=queryDateTime.day)
         #Find burned area at queryDateTime
         lat,lon,dataRaw = pm.findQuerySdsData(queryDateTime,composite=True,
-                                              datadir="E:/WildfireResearch/data/modis_burnedarea/",
+                                              datadir="G:/WildfireResearch/data/modis_burnedarea/",
                                               sdsname='burndate')
-        data = GriddedMeasurement(queryDateTime,lat,lon+modOffset,dataRaw,'BA')
+        data = GriddedMeasurement(queryDateTime,lat,lon,dataRaw,'BA')
         data.dataName = dataName
+    elif dataName == 'Canopy':
+        lat,lon,dataRaw = uc.readPickle('E:/projects/wildfire-research/data-test/canopy.pkl')
+        data = GriddedMeasurement(queryDateTime,lat,lon,dataRaw,'Canopy')
+        data.dataName = dataName
+        
     if type(data) is not list:
         data = [data]
     return data
@@ -587,7 +607,7 @@ def queryDatabase(queryDateTime,dataNames,
     if modis_lat is not None:
         datas = remapDatas(datas,modis_lat,modis_lon)
     else:
-        lat_lmt = [31,44]
+        lat_lmt = [30,44]
         lon_lmt = [-126,-112]
         pxPerDegree = 120
         lat_lnsp = np.linspace(np.min(lat_lmt),np.max(lat_lmt),
@@ -613,8 +633,11 @@ def remapDatas(datas,modis_lat,modis_lon):
                 datas[i].remap(modis_lat,modis_lon,ds=4)
             elif datas[i].dataName == 'BurnedArea':
                 datas[i].remap(modis_lat,modis_lon,ds=4)
+            #elif datas[i].dataName == 'Canopy':
+            #    datas[i].remap(modis_lat,modis_lon,ds=4)
     return datas
 
+"""
 def queryDatabase2(queryDateTime,dataNames,
                   queryTimeRange = [0],
                   asosTimeRange = dt.timedelta(days=0,hours=12,minutes=0),
@@ -684,7 +707,7 @@ def queryDatabase2(queryDateTime,dataNames,
     
     return datas
 
-
+"""
 
 
 def getCandidates(queryDateTime,dataNames,
@@ -774,12 +797,16 @@ def loadCandidates(indirs,dataFile,forceRebuild=False,memThresh=90):
                         d = getattr(data[i],key)
                         toMod = True
                         if 'FireMask' in key:
+                            [r,c] = d.shape
                             d = d-6
                             dmin = 0
                             dmax = 3
                         elif 'Elevation' in key:
-                            dmin = -600
-                            dmax = 4200
+                            [r,c] = d.shape
+                            centerValue = d[int(r/2),int(c/2)]
+                            d = d-centerValue
+                            dmin = -2000
+                            dmax = 2000
                         elif 'VegetationIndex' in key:
                             dmin = 0
                             dmax = 10000
@@ -982,6 +1009,32 @@ def datasRemoveKey(datas,key):
                 data.inKeys.remove(key[4:])
                 data.__dict__.pop(key,None)
     return datas
+
+def generateHdfDataset(datas,lat,lon,sdsnames,timeStamp,outFile,
+                       sdsdescriptions=None,sdsunits=None):
+    ''' This function will generate a custom Level 3 hdf file
+    '''
+    hdfFile = phdf.SD(outFile,phdf.SDC.WRITE|phdf.SDC.CREATE) # Assign a few attributes at the file level
+    hdfFile.author = 'JENSEN HUGHES'
+    hdfFile.productionDate = time.strftime('%Y%j.%H%M',time.gmtime(time.time()))
+    hdfFile.timeStamp = str('%.4f'%(timeStamp))
+    hdfFile.latitudeL = str('%.8f'%(data.latitude[0]))
+    hdfFile.latitudeR = str('%.8f'%(data.latitude[-1]))
+    hdfFile.longitudeL = str('%.8f'%(data.longitude[0]))
+    hdfFile.longitudeR = str('%.8f'%(data.longitude[-1]))
+    hdfFile.priority = 2
+    d1 = hdfFile.create(sdsname, phdf.SDC.FLOAT32, data.data.shape)
+    d1.description = sdsdescription
+    d1.units = sdsunits
+    dim1 = d1.dim(0)
+    dim2 = d1.dim(1)
+    dim1.setname('latitude')
+    dim2.setname('longitude')
+    dim1.units = 'degrees'
+    dim2.units = 'degrees'
+    d1[:] = data.data
+    d1.endaccess()
+    hdfFile.end()
 
 if __name__ == "__main__":
     ''' case 0: Find active fire, elevation, wind-x, wind-y, burned area, and
@@ -1302,16 +1355,16 @@ if __name__ == "__main__":
         basetime = '2016001'
         asosTimeRange = dt.timedelta(days=0,hours=12,minutes=0)
         asosResolution = 111
-        outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/nhood_25_25_step3/'
+        outdir = 'E:/projects/wildfire-research/networkData/20180305/'
         ns = "DatabaseQuery"
-        dataNames = ['Elevation','WindX','WindY','VegetationIndexA']
-        inKeys = ['FireMaskHourlyTA','Elevation','WindX','WindY','VegetationIndexA']
+        dataNames = ['Elevation','WindX','WindY','Canopy']
+        inKeys = ['FireMaskHourlyTA','Elevation','WindX','WindY','Canopy']
         outKeys = ['FireMaskHourlyTA']
             
         candidates = []
         oldData = None
-        toPlot = False
-        for i in range(0,3000): #8
+        toPlot = True
+        for i in range(0,10):#3000): #8
             mem = psutil.virtual_memory()[2]
             if mem < 90.0:
                 queryTime = time.mktime(time.strptime(basetime+'15','%Y%j%H'))+(3600*3)*float(i)
@@ -1381,9 +1434,9 @@ if __name__ == "__main__":
     
                         dTmp.plot(saveFig=True,
                                   closeFig=None,
-                                  saveName=outdir+dTmp.strTime(hours=False)[0]+'_'+lat+'_'+lon+'.png',
-                                  clim=np.linspace(0,9,10),
-                                  label='AF')
+                                  saveName=outdir+dTmp.strTime(hours=False)[0]+'_'+lat+'_'+lon+'.png')
+                                  #clim=np.linspace(0,9,10),
+                                 # label='AF')
                     else:
                         memError = True
                         print("memory too high to plot, j=%.0f"%(j))
@@ -1443,7 +1496,7 @@ if __name__ == "__main__":
                             else:
                                 print("no Candidates on time %s"%(queryTimestr))
                                 dataExtract = None
-                            uc.dumpPickle(dataExtract,fileName)
+                            #uc.dumpPickle(dataExtract,fileName)
                             print("\t%s created."%(outdir+queryTimestr+'.pkl'))
                         else:
                             print("Skipping satelliteTime: %s exists"%(fileName))

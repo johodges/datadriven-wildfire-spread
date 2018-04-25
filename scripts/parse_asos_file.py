@@ -172,7 +172,7 @@ class ASOSStation(object):
         '''
         def list2avg(dataL,inds):
             dataNp = np.array(dataL)
-            dataNp[dataNp == None] = np.nan
+            dataNp[np.equal(dataNp,None)] = np.nan
             dataNp = np.array(dataNp,dtype=np.float32)
             if not np.all(np.isnan(dataNp[inds[0]:inds[1]])):
                 data = np.nanmean(dataNp[inds[0]:inds[1]])
@@ -515,7 +515,7 @@ def parseMETARfile(file):
     return datas, dateTimes
 
 def readStationsFromText(filename='../data-test/asos-stations.txt',
-                         datadirs=['E:/WildfireResearch/data/asos-fivemin/6401-2016/'],
+                         datadirs=['G:/WildfireResearch/data/asos-fivemin/6401-2016/'],
                          timeRange = dt.timedelta(days=0,hours=0,minutes=30)):
     ''' This function will generate a list of ASOSStations which contain
     all the measurements found in the list of directories contained in
@@ -637,8 +637,8 @@ if __name__ == "__main__":
     '''
     case = 0
     filename = '../data-test/asos-stations.txt'
-    datadirs=['E:/WildfireResearch/data/asos-fivemin/6401-2016/',
-              'E:/WildfireResearch/data/asos-fivemin/6401-2017/']
+    datadirs=['G:/WildfireResearch/data/asos-fivemin/6401-2016/',
+              'G:/WildfireResearch/data/asos-fivemin/6401-2017/']
     resolution = 111 # pixels per degree
     queryDateTime = dt.datetime(year=2016,month=6,day=17,hour=5,minute=53)
     timeRange = dt.timedelta(days=0,hours=0,minutes=30)

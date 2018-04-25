@@ -1,193 +1,195 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Feb 16 12:42:51 2018
+Created on Tue Apr 17 09:34:23 2018
 
 @author: JHodges
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# Imports
+import subprocess
+import os
+import behavePlus as bp
 import numpy as np
-import tensorflow as tf
+import datetime
+import queryLandFire as qlf
+import geopandas as gpd
+from shapely.geometry import Polygon, Point
+import matplotlib.pyplot as plt
+import rasterio
+from rasterio import features
+import rasterio.plot as rsplot
+import parse_asos_file as paf
 
-tf.logging.set_verbosity(tf.logging.INFO)
+def parseFarsiteInput(filename):
+    with open(filename,'r') as f:
+        lines = f.readlines()
+    moistures = []
+    weathers = []
+    winds = []
+    for line in lines:
+        if 'FUEL_MOISTURES_DATA' in line:
+            switch = 'moisture'
+        elif 'WEATHER_DATA' in line:
+            switch = 'weather'
+        elif 'WIND_DATA' in line:
+            switch = 'wind'
+        lineSplit = line.split(' ')
+        if lineSplit[0].isdigit():
+            lineArray = np.array([float(x) for x in lineSplit])
+            if switch == 'moisture':
+                moistures.append(lineArray)
+            elif switch == 'weather':
+                weathers.append(lineArray)
+            elif switch == 'wind':
+                winds.append(lineArray)
+    moistures = np.array(moistures)
+    weathers = np.array(weathers)
+    winds = np.array(winds)
+    return moistures, weathers, winds
 
-def cnn_model_fn(features, labels, mode):
-    """Model function for CNN."""
-    sz = 50
-    # Input Layer
-    input_layer = tf.reshape(features["x"], [-1, sz, sz, 5])
-    print(input_layer.shape)
+def lineStringToPolygon(data):
+    for i in range(0,data.shape[0]):
+        data['geometry'][i] = Polygon(list(data['geometry'][i].coords))
+    return data
 
-    # Convolutional Layer #1
-    conv1 = tf.layers.conv2d(
-            inputs=input_layer,
-            filters=32,
-            kernel_size=[5, 5],
-            padding="same",
-            activation=tf.nn.relu)
+def loadFarsiteOutput(inDir,namespace,commandFarsite=True):
+    imgs, names, headers = qlf.readLcpFile(inDir+namespace+'.LCP')
+    header = qlf.parseLcpHeader(headers)
+    dataOut = gpd.GeoDataFrame.from_file(inDir+namespace+'_out_Perimeters.shp')
+    if commandFarsite:
+        dataOut = lineStringToPolygon(dataOut)
+    testDate = [datetime.datetime(year=2016, month=int(x), day=int(y), hour=int(z)).timestamp() for x,y,z in zip(dataOut['Month'].values,dataOut['Day'].values,dataOut['Hour'].values/100)]
+    testDate = np.array(testDate,dtype=np.float32)
+    testDate = np.array((testDate-testDate[0])/3600,dtype=np.int16) #/3600
+    dataOut['time'] = testDate
+    
+    lcpData = rasterio.open(inDir+namespace+'.LCP')
+    return dataOut, lcpData
 
-    # Pooling Layer #1
-    pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
+def downsampleImage(img,interval):
+    newImg = img[::interval,::interval].copy()
+    return newImg
 
-    # Convolutional Layer #2 and Pooling Layer #2
-    conv2 = tf.layers.conv2d(
-            inputs=pool1,
-            filters=64,
-            kernel_size=[5, 5],
-            padding="same",
-            activation=tf.nn.relu)
-    pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=2)
+def plotTimeContour(img,imgBand,contours):
+    contours = contours.reindex(index=contours.index[::-1])
+    fig, ax = plt.subplots(figsize=(12,8))
+    rsplot.show((img,imgBand),with_bounds=True,ax=ax,cmap='gray')
+    
+    vmin = np.min(contours.time)
+    vmax = np.max(contours.time)
+    
+    contours.plot(ax=ax, cmap='jet', scheme='time')
+    
+    sm = plt.cm.ScalarMappable(cmap='jet_r', norm=plt.Normalize(vmin=vmin,vmax=vmax))
+    sm._A = []
+    cbar = fig.colorbar(sm)
+    cbar.ax.set_ylabel('Time since Ignition (Hours)',rotation=270,fontsize=fs)
+    cbar.ax.get_yaxis().labelpad = 20
+    cbar.ax.tick_params(labelsize=fs)
+    cbar.ax.invert_yaxis()
+    
+    plt.tick_params(labelsize=fs)
+    ax.ticklabel_format(axis='both', style='sci', scilimits=(-2,2))
+    plt.tight_layout()
+    
+    plt.xlabel('NAD83 EW %s'%(ax.xaxis.offsetText.get_text()),fontsize=fs)
+    plt.ylabel('NAD83 NS %s'%(ax.yaxis.offsetText.get_text()),fontsize=fs)
+    ax.yaxis.offsetText.set_visible(False)
+    ax.xaxis.offsetText.set_visible(False)
+    return fig
 
-    # Dense Layer
-    pool2_flat = tf.reshape(pool2, [-1, 12 * 12 * 64])
-    dense = tf.layers.dense(inputs=pool2_flat, units=1024, activation=tf.nn.relu)
-    dropout = tf.layers.dropout(
-            inputs=dense, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
+def getRasterFromPolygon(data,tF,ind,value,sz):
+    outArr = np.zeros(sz)
+    shapes = ((geom,value) for geom, value in zip(data.iloc[:ind,:].geometry, np.zeros((data.iloc[:ind,:].shape[0],),dtype=np.int16)+value)) #dataOut.iloc[:i+1,:].time))
+    raster = np.array(features.rasterize(shapes=shapes, fill=1, out=outArr, transform=tF)).copy()
+    return raster
 
-    # Logits Layer
-    logits = tf.layers.dense(inputs=dropout, units=10)
+def parseMoistures(moistures):
+    fm, m1h, m10h, m100h, lhm, lwm = np.median(moistures,axis=0)
+    return m1h, m10h, m100h, lhm, lwm
 
-    predictions = {
-            # Generate predictions (for PREDICT and EVAL mode)
-            "classes": tf.argmax(input=logits, axis=1),
-            # Add `softmax_tensor` to the graph. It is used for PREDICT and by the
-            # `logging_hook`.
-            "probabilities": tf.nn.softmax(logits, name="softmax_tensor")
-            }
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
-
-    # Calculate Loss (for both TRAIN and EVAL modes)
-    loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
-
-    # Configure the Training Op (for TRAIN mode)
-    if mode == tf.estimator.ModeKeys.TRAIN:
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.001)
-        train_op = optimizer.minimize(
-                loss=loss,
-                global_step=tf.train.get_global_step())
-        return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
-
-    # Add evaluation metrics (for EVAL mode)
-    eval_metric_ops = {
-            "accuracy": tf.metrics.accuracy(
-                    labels=labels, predictions=predictions["classes"])}
-    return tf.estimator.EstimatorSpec(
-            mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
-
-def mnistExample():
-    # Load training and eval data
-    mnist = tf.contrib.learn.datasets.load_dataset("mnist")
-    train_data = mnist.train.images # Returns np.array
-    train_labels = np.asarray(mnist.train.labels, dtype=np.int32)
-    eval_data = mnist.test.images # Returns np.array
-    eval_labels = np.asarray(mnist.test.labels, dtype=np.int32)
-    
-    print(train_data.shape,train_labels.shape)
-    print(train_labels[0:10])
-    
-    """
-    # Create the Estimator
-    mnist_classifier = tf.estimator.Estimator(
-            model_fn=cnn_model_fn, model_dir="/tmp/mnist_convnet_model")
-    
-    # Set up logging for predictions
-    tensors_to_log = {"probabilities": "softmax_tensor"}
-    logging_hook = tf.train.LoggingTensorHook(
-            tensors=tensors_to_log, every_n_iter=50)
-    
-    # Train the model
-    train_input_fn = tf.estimator.inputs.numpy_input_fn(
-            x={"x": train_data},
-            y=train_labels,
-            batch_size=100,
-            num_epochs=None,
-            shuffle=True)
-    mnist_classifier.train(
-            input_fn=train_input_fn,
-            steps=20000,
-            hooks=[logging_hook])
-    
-    # Evaluate the model and print results
-    eval_input_fn = tf.estimator.inputs.numpy_input_fn(
-            x={"x": eval_data},
-            y=eval_labels,
-            num_epochs=1,
-            shuffle=False)
-    eval_results = mnist_classifier.evaluate(input_fn=eval_input_fn)
-    print(eval_results)
-    """
-    
-def myNetwork():
-    import generate_dataset as gd
-    import network_analysis as na
-    
-    indir = ['../networkData/20180213/']
-    
-    svdInputs = False
-    generatePlots=True
-    test_number = 10
-    fakeRandom=True
-    k = 11
-    datas = []
-    
-    outdir = indir[0]+'output/'
-    dataRawFile = indir[0]+'dataCluster.raw'
-    if svdInputs:
-        dataFile = dataRawFile+'.svd' #indir[0]+'dataSvd.out'
-    else:
-        dataFile = dataRawFile+'.out'
-    newDatas, keys = gd.rearrangeDataset(datas,dataFile,svdInputs=svdInputs,k=k,forceRebuild=False)
-    
-    testing_data, training_data = na.splitdata_tf(newDatas,test_number=test_number,fakeRandom=fakeRandom)
-    train_data = np.array(training_data[0],dtype=np.float32)
-    train_labels = training_data[1]
-    
-    eval_data = testing_data[0]
-    eval_labels = testing_data[1]
-    
-    train_labels = np.random.randint(0,high=10,size=train_data.shape[0])
-    eval_labels = np.random.randint(0,high=10,size=train_data.shape[0])
-    
-    
-    print(train_data.shape,train_labels.shape)
-    #print(test_data[0].shape,training_data[0].shape)
-
-
-    # Create the Estimator
-    mnist_classifier = tf.estimator.Estimator(
-            model_fn=cnn_model_fn, model_dir="/tmp/wf_model")
-    
-    # Set up logging for predictions
-    tensors_to_log = {"probabilities": "softmax_tensor"}
-    logging_hook = tf.train.LoggingTensorHook(
-            tensors=tensors_to_log, every_n_iter=50)
-    
-    
-    # Train the model
-    train_input_fn = tf.estimator.inputs.numpy_input_fn(
-            x={"x": train_data},
-            y=train_labels,
-            batch_size=100,
-            num_epochs=None,
-            shuffle=True)
-    
-    mnist_classifier.train(
-            input_fn=train_input_fn,
-            steps=20000,
-            hooks=[logging_hook])
-    
+def makeConstImage(sz,value):
+    img = np.zeros(sz)+value
+    return img
 
 if __name__ == "__main__":
-    mnistExample() #tf.app.run()
-    myNetwork()
+    
+    commandFile = 'commonDir/farsite/example/Panther/runPanther.txt'
+    inDir = 'E:/projects/wildfire-research/farsite/data/'
+    #inDir = 'E:/projects/wildfire-research/farsiteData/'
+    #namespace = 'n117-9343_36-5782_3000'
+    namespace = 'n114-0177_38-3883_25000'
+    #lcpFile = inDir+namespace+'.LCP'
+    #elevation = getLcpElevation(lcpFile)
+    #ignitionShape = makeCenterIgnition(lcpFile)    
+    
+    moistures, weathers, winds = parseFarsiteInput(inDir+namespace+'.input')
+    
+    windSpeed = np.median(winds[:,3])
+    windDir = np.median(winds[:,4])
+    windX,windY = paf.convertVector(windSpeed,windDir)
+    m1h, m10h, m100h, lhm, lwm = parseMoistures(moistures)
     
     
-    #50x50 is 120*120
-    #28x28 is 7*7
     
+    #fileName = inDir+namespace
+    #params = generateFarsiteInput(fileName,elevation)
+    #runFarsite(commandFile)
+    
+    
+    
+    #p = subprocess.Popen([dockerStart,dockerCmd],stdout=subprocess.PIPE)
+    #print(p.communicate())
+    
+    fs = 16
+    interval = int(np.ceil(1000/30))
+    dataOut, lcpData = loadFarsiteOutput(inDir,namespace)
+    
+    fig = plotTimeContour(lcpData,1,dataOut)
+    
+    elevImg = lcpData.read(1)
+    fuelImg = lcpData.read(4)
+    canopyImg = lcpData.read(5)
+    canopyHeightImg = lcpData.read(6)
+    canopyDensityImg = lcpData.read(7)
+    sz = elevImg.shape
+    
+    elevImg = downsampleImage(elevImg,interval)
+    fuelImg = downsampleImage(fuelImg,interval)
+    canopyImg = downsampleImage(canopyImg,interval)
+    smallSz = elevImg.shape
+    
+    windXImg = makeConstImage(smallSz,windX)
+    windYImg = makeConstImage(smallSz,windY)
+    
+    t = dataOut['time']
+    tOff = 6
+    
+    tF = lcpData.transform
+    
+    for i in range(1,dataOut.shape[0]-1,601):
+        endInd = np.argwhere(t-t[i]>=tOff)[0][0]
+        """ This is how command line farsite outputs
+        """
+        currentFire = getRasterFromPolygon(dataOut,tF,i,1,sz)
+        nextFire = getRasterFromPolygon(dataOut,tF,endInd,1,sz)
+        
+        currentFire = downsampleImage(currentFire,interval)
+        nextFire = downsampleImage(nextFire,interval)
+        
+        fig = plt.figure(figsize=(12,12))
+        plt.subplot(3,4,1)
+        plt.imshow(currentFire,cmap='jet')
+        plt.subplot(3,4,2)
+        plt.imshow(elevImg,cmap='jet')
+        plt.subplot(3,4,3)
+        plt.imshow(windXImg,cmap='jet')
+        plt.subplot(3,4,4)
+        plt.imshow(windYImg,cmap='jet')
+        plt.subplot(3,4,6)
+        plt.imshow(canopyImg,cmap='jet')
+        plt.subplot(3,4,7)
+        plt.imshow(fuelImg,cmap='jet')
+
+        plt.subplot(3,4,9)
+        plt.imshow(nextFire,cmap='jet')
+        

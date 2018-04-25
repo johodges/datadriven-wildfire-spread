@@ -118,7 +118,7 @@ def loadMapData(name):
     return data, lat, lon
 
 def queryElevation(
-        filename='E:/WildfireResearch/data/usgs_elevation_30m/California.pkl'):
+        filename='G:/WildfireResearch/data/usgs_elevation_30m/California.pkl'):
     ''' This is the function which is used to query the database.
     
     NOTE: Since there is no dependence on time for elevation in this database,
@@ -134,7 +134,7 @@ if __name__ == "__main__":
         case 1: Load raw data, build map, plot map, dump map
         case 2: Load map, plot map
     '''
-    datadir = 'E:/WildfireResearch/data/usgs_elevation_30m/'
+    datadir = 'G:/WildfireResearch/data/usgs_elevation_30m/'
     clim = [-1000,-500,0,500,1000,1500,2000,2500,3000,3500,4000]
     case = 1
     totaltim = uc.tic()
