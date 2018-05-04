@@ -18,6 +18,7 @@ import rasterio
 from rasterio import features
 import rasterio.plot as rsplot
 import math
+import glob
 
 def convertVector(speed,direction):
     ''' This function will convert wind speed measurements from polar
@@ -131,10 +132,10 @@ def lineStringToPolygon(data):
         data['geometry'][i] = Polygon(list(data['geometry'][i].coords))
     return data
 
-def loadFarsiteOutput(inDir,namespace,commandFarsite=True):
+def loadFarsiteOutput(namespace,commandFarsite=True):
     #imgs, names, headers = qlf.readLcpFile(inDir+namespace+'.LCP')
     #header = qlf.parseLcpHeader(headers)
-    dataOut = gpd.GeoDataFrame.from_file(inDir+namespace+'_out_Perimeters.shp')
+    dataOut = gpd.GeoDataFrame.from_file(namespace+'_out_Perimeters.shp')
     if commandFarsite:
         dataOut = lineStringToPolygon(dataOut)
     testDate = [datetime.datetime(year=2016, month=int(x), day=int(y), hour=int(z)).timestamp() for x,y,z in zip(dataOut['Month'].values,dataOut['Day'].values,dataOut['Hour'].values/100)]
@@ -154,6 +155,7 @@ def downsampleImage(img,interval):
     return newImg
 
 def plotTimeContour(img,imgBand,contours,namespace):
+    fs = 16
     contours = contours.reindex(index=contours.index[::-1])
     fig, ax = plt.subplots(figsize=(12,8))
     rsplot.show((img,imgBand),with_bounds=True,ax=ax,cmap='gray')
@@ -206,15 +208,121 @@ def remapFuelImg(img):
     imgNew = np.reshape(imgRsNew,(sz[0],sz[1]))
     return imgNew
 
+def visualizeFarsiteResult(namespace,lcpNamespace,perimeterOnly=True):
+
+    moistures, weathers, winds = parseFarsiteInput(namespace+'.input')
+    windSpeed = np.median(winds[:,3])
+    windDir = np.median(winds[:,4])
+    windX,windY = convertVector(windSpeed,windDir)
+    m1h, m10h, m100h, lhm, lwm = parseMoistures(moistures)
+    
+    fs = 16
+    interval = int(np.ceil(1000/30))
+    dataOut = loadFarsiteOutput(namespace)
+    lcpData = loadFarsiteLcp(inDir+lcpNamespace)
+    
+    fig = plotTimeContour(lcpData,1,dataOut,namespace+'_p.png')
+    plt.close()
+    if not perimeterOnly:
+        elevImg = np.array(lcpData.read(1),dtype=np.float32)
+        elevImg = elevImg-np.median(elevImg)
+        fuelImg = lcpData.read(4)
+        canopyImg = np.array(lcpData.read(5),dtype=np.float32)/100
+        canopyHeightImg = np.array(lcpData.read(6),dtype=np.float32)/10
+        canopyBaseHeightImg = np.array(lcpData.read(7),dtype=np.float32)/10
+        canopyDensityImg = np.array(lcpData.read(8),dtype=np.float32)/100
+        sz = elevImg.shape
+        
+        elevImg = downsampleImage(elevImg,interval)
+        fuelImg = downsampleImage(fuelImg,interval)
+        canopyImg = downsampleImage(canopyImg,interval)
+        canopyHeightImg = downsampleImage(canopyHeightImg,interval)
+        canopyBaseHeightImg = downsampleImage(canopyBaseHeightImg,interval)
+        canopyDensityImg = downsampleImage(canopyDensityImg,interval)
+        fuelImg = remapFuelImg(fuelImg)
+        smallSz = elevImg.shape
+        
+        windXImg = makeConstImage(smallSz,windX)
+        windYImg = makeConstImage(smallSz,windY)
+        lhmImg = makeConstImage(smallSz,lhm)
+        lwmImg = makeConstImage(smallSz,lwm)
+        m1hImg = makeConstImage(smallSz,m1h)
+        m10hImg = makeConstImage(smallSz,m10h)
+        m100hImg = makeConstImage(smallSz,m100h)
+        
+        t = dataOut['time']
+        tOff = 6
+        
+        tF = lcpData.transform
+        
+        clims = [[0,1],[-250,250],
+                 [-20,20],[-20,20],
+                 [30,150],[30,150],
+                 [0,40],[0,40],
+                 [0,40],[0,1],
+                 [0,20],[0,20],
+                 [0,0.4],
+                 [0,52],
+                 [0,1],[0,1]]
+        names = ['Input Fire','Input Elev',
+                 'Input WindX','Input WindY',
+                 'Live Herb M','Live Wood M',
+                 'Moisture 1-h','Moisture 10-h',
+                 'Moisture 100-h','Canopy Cover',
+                 'Canopy Height','Canopy Base Height',
+                 'Canopy Density',
+                 'model',
+                 'Network','Truth']
+        
+        
+        (t.max()-t.min())/tOff
+        for i in range(0,t.max(),tOff):
+            """ This is how command line farsite outputs
+            """
+            try:
+                startInd = np.argwhere(t-i>=0)[0][0]
+                endInd = np.argwhere(t-i>=tOff)[0][0]
+                currentFire = getRasterFromPolygon(dataOut,tF,startInd,1,sz)
+                nextFire = getRasterFromPolygon(dataOut,tF,endInd,1,sz)
+                
+                currentFire = downsampleImage(currentFire,interval)
+                nextFire = downsampleImage(nextFire,interval)
+                data = [currentFire,elevImg,windXImg,windYImg,lhmImg,lwmImg,m1hImg,m10hImg,m100hImg,canopyImg,canopyHeightImg,canopyBaseHeightImg,canopyDensityImg,fuelImg,nextFire,nextFire]
+                plotWildfireData(data,names,clims=clims,saveFig=True,saveName=namespace+'_'+str(i)+'_'+str(i+tOff)+'_summary.png')
+            except:
+                pass
+
 if __name__ == "__main__":
     
     commandFile = 'commonDir/farsite/example/Panther/runPanther.txt'
     inDir = 'E:/projects/wildfire-research/farsite/data/'
+    
+    files = glob.glob(inDir+"*run_*_Perimeters.shp")
+    print("Total files: %.0f"%(len(files)))
+    for i in range(0,len(files)):#file in files:
+        file = files[i]
+        #file = inDir[:-1]+'\\'+'run_0_8_n116-9499_38-9950_25000_out_Perimeters.shp'
+        namespace = file.split('\\')[1].split('_out_Perimeters.shp')[0]
+        namespace = inDir+namespace
+        try:
+            lcpNamespace = namespace.split('_')[3]+'_'+namespace.split('_')[4]+'_'+namespace.split('_')[5]+'.LCP'
+            
+            if len(glob.glob(namespace+'_p.png')) == 0:
+                visualizeFarsiteResult(namespace,lcpNamespace)
+        except:
+            print(namespace)
+    #lcpNamespace = namespace+'.LCP'
+    
     #inDir = 'E:/projects/wildfire-research/farsiteData/'
     #namespace = 'n117-9343_36-5782_3000'
     #namespace = 'n114-0177_38-3883_25000'
-    namespace = 'run_0_n118-4236_43-0131_25000'
-    lcpNamespace = 'n118-4236_43-0131_25000.LCP'
+    #lcpNamespace = 'n114-0177_38-3883_25000.LCP'
+    #namespace = 'run_3_n115-5637_40-2028_25000'
+    #lcpNamespace = 'n115-5637_40-2028_25000.LCP'
+    #namespace = 'run_0_5_n116-6648_37-3162_25000'
+    #lcpNamespace = 'n116-6648_37-3162_25000.LCP'
+    #namespace = 'run_0_n118-4236_43-0131_25000'
+    #lcpNamespace = 'n118-4236_43-0131_25000.LCP'
     #namespace = 'run_1_n120-8917_34-9586_25000'
     #lcpNamespace = 'n120-8917_34-9586_25000.LCP'
     #namespace = 'run_2_n115-6195_39-1428_25000'
@@ -223,6 +331,8 @@ if __name__ == "__main__":
     #elevation = getLcpElevation(lcpFile)
     #ignitionShape = makeCenterIgnition(lcpFile)    
     
+    
+    """
     moistures, weathers, winds = parseFarsiteInput(inDir+namespace+'.input')
     
     windSpeed = np.median(winds[:,3])
@@ -298,7 +408,8 @@ if __name__ == "__main__":
              'model',
              'Network','Truth']
     
-    
+    """
+    '''
     (t.max()-t.min())/tOff
     for i in range(0,t.max(),tOff):
         """ This is how command line farsite outputs
@@ -334,4 +445,4 @@ if __name__ == "__main__":
         plt.subplot(3,4,9)
         plt.imshow(nextFire,cmap='jet')
         """
-        
+    '''

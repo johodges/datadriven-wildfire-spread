@@ -38,8 +38,8 @@ from networkDesign3 import cnnModel3, cnnModel_e64a128d, cnnModel_e56a28d, cnnMo
 
 class tfTrainedVars(object):
     
-    def __init__(self,modelDir,normalize=True):
-        classifier = tf.estimator.Estimator(model_fn=my_cnn_model_fn, model_dir=modelDir)
+    def __init__(self,modelDir,modelFnc,normalize=True):
+        classifier = tf.estimator.Estimator(model_fn=modelFnc, model_dir=modelDir)
         weightNames = classifier.get_variable_names()
         
         #conv1_kernel = np.empty((10,10,1,8))
@@ -1334,7 +1334,7 @@ if __name__ == "__main__":
     else:
         dataFile = dataRawFile+'.out'
     
-    case = 3
+    case = 4
     
     if case == 0:
     
@@ -1696,8 +1696,9 @@ if __name__ == "__main__":
         model_dir = '../models/cnnModel_e56a28d_m'
         model_dir = '../models/cnnModel_unitTest1_m'
         model_dir = "../models/cnnModel_e56_m"
+        modelFnc = cnnModel_e56
         
-        weights = tfTrainedVars(model_dir)
+        weights = tfTrainedVars(model_dir,modelFnc)
         
         #tmp = getattr(weights,'1_kernel')
         #plt.imshow(tmp[:,:,0,0],cmap='gray')
