@@ -22,11 +22,19 @@
 # # IMPORTS
 #=========================================================================
 
+import matplotlib
+matplotlib.rcParams['ps.useafm'] = True
+matplotlib.rcParams['pdf.use14corefonts'] = True
+
 import numpy as np
+import yaml
+from collections import defaultdict
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import util_common as uc
 import tensorflow as tf
 import pickle
 import glob
+import sys
 import generate_dataset as gd
 from generate_dataset import GriddedMeasurementPair
 import psutil
@@ -758,15 +766,16 @@ def network_wildfire_test(data,ns):
     return test_prediction
 
 def plotWildfireTest(datas,names,
-                     clims=None,closeFig=None,
-                     saveFig=False,saveName=''):
+                     clims=None,labels=None,closeFig=None,
+                     saveFig=False,saveName='',
+                     gridOn=True):
     totalPlots = np.ceil(float(len(datas))**0.5)
     colPlots = totalPlots
     rowPlots = np.ceil((float(len(datas)))/colPlots)
     currentPlot = 0
     
     if saveFig:
-        fntsize = 20
+        fntsize = 32
         lnwidth = 5
         fig = plt.figure(figsize=(colPlots*12,rowPlots*10))#,tight_layout=True)      
         if closeFig is None:
@@ -793,6 +802,8 @@ def plotWildfireTest(datas,names,
         ax.tick_params(axis='both',labelsize=fntsize)
         plt.xticks(xticks)
         plt.yticks(yticks)
+        plt.xlabel('km',fontsize=fntsize)
+        plt.ylabel('km',fontsize=fntsize)
         #plt.xlabel('Longitude',fontsize=fntsize)
         #plt.ylabel('Latitude',fontsize=fntsize)
         plt.title(key,fontsize=fntsize)
@@ -802,18 +813,21 @@ def plotWildfireTest(datas,names,
             label = ''
         else:
             clim = clims[i]
+        if labels is None:
             label = ''
-        img = ax.imshow(datas[i],cmap='jet',vmin=clim[0],vmax=clim[-1])#,vmin=0,vmax=1)
+        else:
+            label = labels[i]
+        img = ax.imshow(datas[i],cmap='hot_r',vmin=clim[0],vmax=clim[-1])#,vmin=0,vmax=1)
         #img = ax.contourf(self.longitude,self.latitude,getattr(self,key),levels=clim,cmap=cmap)
         img_cb = plt.colorbar(img,ax=ax,label=label)
 
         img_cb.set_label(label=label,fontsize=fntsize)
         img_cb.ax.tick_params(axis='both',labelsize=fntsize)
-        ax.grid(linewidth=lnwidth/4,linestyle='-.',color='k')
+        if gridOn: ax.grid(linewidth=lnwidth/4,linestyle='-.',color='k')
         for ln in ax.lines:
             ln.set_linewidth(lnwidth)
     if saveFig:
-        fig.savefig(saveName)
+        fig.savefig(saveName,dpi=300)
         
     if closeFig:
         plt.clf()
@@ -919,7 +933,9 @@ def convolve_wildfire_test(data,labels,modelFnc,model_dir="../models/wf_model"):
             y=labels,
             num_epochs=1,
             shuffle=False)
+    '''
     eval_results = classifier.evaluate(input_fn=eval_input_fn)
+    '''
     
     # Predict new measurements
     pred_results = classifier.predict(input_fn=eval_input_fn)
@@ -937,7 +953,7 @@ def convolve_wildfire_test(data,labels,modelFnc,model_dir="../models/wf_model"):
     prediction = np.array(prediction)
     truth = np.array(truth)
     
-    return eval_results, prediction, truth
+    return prediction, prediction, truth
 
 def my_cnn_model_fn(features, labels, mode):
     """Model function for CNN."""
@@ -1232,6 +1248,7 @@ def labels2probs(labels,width=2500,fireThresh=0.05):
     for i in range(1,int(float(sz[1])/width)):
         fireLabels = fireLabels+np.array(labels[:,i*width:(i+1)*width],dtype=np.float32)
     datas = fireLabels/(noFireLabels+fireLabels)
+    datas[np.isnan(datas)] = 0
     #fireLabels = np.array(labels[:,2500:5000],dtype=np.float32)#+np.array(labels[:,5000:],dtype=np.float32)
     #inds = np.where(fireLabels-noFireLabels > 0)
     #inds = np.where(fireLabels>fireThresh)
@@ -1264,9 +1281,9 @@ def labels2labels(labels,width=3):
     fireLabels = np.array(labels[:,2500:5000],dtype=np.float32)+np.array(labels[:,5000:],dtype=np.float32)
     return noFireLabels, fireLabels
 
-def inputs2labels(inputs,pixels=2500):
+def inputs2labels(inputs,labels,pixels=2500):
     newInputs = []
-    n_dimensions = int(eval_data.shape[1]/pixels)
+    n_dimensions = int(labels.shape[1]/pixels)
     for j in range(0,len(inputs)):
         new = []
         for i in range(0,n_dimensions):
@@ -1278,6 +1295,7 @@ def dropDataChannels(datas,pixels=2500,
                      channels=[True,True,True,True,True,False,True,False,False,True,False,False,True]):
     sz = datas.shape
     for i in range(int(sz[1]/pixels)-1,0,-1):
+        print(i)
         if not channels[i]:
             datas = np.delete(datas,np.array(np.linspace((i-1)*pixels,i*pixels-1,pixels),dtype=np.int32),axis=1)
     return datas
@@ -1317,292 +1335,500 @@ def zeroDataChannels(datas,pixels=2500,
             datas[:,(i)*pixels:(i+1)*pixels] = 0.0
     return datas
 
+def readPickledRawData(namespace):
+    files = glob.glob(namespace+'*.pkl')
+    allIn = []
+    allOut = []
+    for i in range(0,len(files)):
+        [inData,outData] = uc.readPickle(files[i])
+        allIn.extend(inData)
+        allOut.extend(outData)
+    inData = np.array(allIn)
+    outData = np.array(allOut)
+    
+    return inData, outData
+
+def findBestThreshold(predictionImgs,truthImgs,inputsImgs):
+    thresh = -0.01
+    threshes = []
+    fMeasures = []
+    confusionMatrixes = []
+    while thresh < 1.0:
+        thresh = thresh + 0.01
+        confusionMatrix = []
+        for i in range(0,len(truthImgs)):
+            pImg = predictionImgs[i].copy()
+            tImg = truthImgs[i].copy()
+            confusionMatrix.append(findConfusionMatrix(pImg,tImg,thresh,inputsImgs[i][0]))
+        confusionMatrix = np.array(confusionMatrix)
+        threshes.append(thresh)
+        fMeasures.append(np.mean(confusionMatrix[:,-2]))
+        confusionMatrixes.append(confusionMatrix)
+    bestThresh = threshes[np.argmax(fMeasures)]
+    bestConfusionMatrix = np.mean(confusionMatrixes[np.argmax(fMeasures)],axis=0)
+    return bestThresh, bestConfusionMatrix, threshes, fMeasures
+    
+def postProcessFirePerimiter(pImg,thresh):
+    corners = [pImg[-1,-1].copy(),pImg[0,0].copy(),pImg[0,-1].copy(),pImg[-1,0].copy()]
+    centers = pImg[24:26,24:26].copy()
+    pImg = scsi.medfilt2d(pImg)
+    (pImg[-1,-1],pImg[0,0],pImg[0,-1],pImg[-1,0]) = corners
+    pImg[24:26,24:26] = centers
+    pImg[pImg < thresh] = 0.0
+    return pImg
+    
+def findConfusionMatrix(pImg,tImg,thresh,iImg):
+    pImg = postProcessFirePerimiter(pImg,thresh)
+    pImg[pImg>=thresh] = 1.0
+    pImg[pImg<thresh] = 0.0
+
+    TN = float(len(np.where(np.array(pImg.flatten() == 0) & np.array(tImg.flatten() == 0))[0]))
+    FN = float(len(np.where(np.array(pImg.flatten() == 0) & np.array(tImg.flatten() == 1))[0]))
+    FP = float(len(np.where(np.array(pImg.flatten() == 1) & np.array(tImg.flatten() == 0))[0]))
+    TP = float(len(np.where(np.array(pImg.flatten() == 1) & np.array(tImg.flatten() == 1))[0]))
+    
+    totalFire = float(len(np.where(iImg.flatten()>=1)[0]))
+    
+    try:
+        accuracy = round((TP+TN)/(TP+TN+FP+FN),2)
+    except ZeroDivisionError:
+        accuracy = round((TP+TN+1)/(TP+TN+FP+FN+1),2)
+    try:
+        recall = round((TP)/(TP+FN),2)
+    except ZeroDivisionError:
+        recall = round((TP+1)/(TP+FN+1),2)
+    try:
+        precision = round((TP)/(TP+FP),2)
+    except ZeroDivisionError:
+        precision = round((TP+1)/(TP+FP+1),2)
+    try:
+        fMeasure = round((2*recall*precision)/(recall+precision),2)
+    except ZeroDivisionError:
+        fMeasure = round((2*recall*precision+1)/(recall+precision+1),2)
+    
+    confusionMatrix = [TN,FN,FP,TP,accuracy,recall,precision,fMeasure,totalFire]
+    return confusionMatrix
+
+def plotThresholdFMeasure(threshes,fMeasures):
+    plt.figure(figsize=(12,12))
+    plt.plot(threshes[:-2],fMeasures[:-2],'-k',linewidth=3)
+    fs = 32
+    plt.xlabel('Threshold',fontsize=fs)
+    plt.ylabel('F-Measure',fontsize=fs)
+    plt.ylim(0.0,1.0)
+    plt.xlim(0.0,1.0)
+    plt.tick_params(labelsize=fs)
+    plt.xticks([0.0,0.2,0.4,0.6,0.8,1.0])
+    plt.yticks([0.0,0.2,0.4,0.6,0.8,1.0])
+    plt.grid()
+    plt.tight_layout()
+    plt.savefig('optimalThreshold.eps')
+    plt.savefig('optimalThreshold.png',dpi=300)
+
+
+def addNoise(data,output,index,mean,stdev):
+    for i in range(0,data.shape[0]):
+        mult = np.random.lognormal(mean,stdev)
+        data[i,:] = data[index,:].copy()
+        if i != index: data[i,2500:] = data[i,2500:]*mult
+        output[i,:] = output[index,:].copy()
+    return data, output
+
+def getPercentile(confusionMatrix,nBins,nThresh):
+    H,X1 = np.histogram(confusionMatrix[:,5],bins=nBins,range=(0,1))
+    recall = X1[np.where(np.cumsum(H) > nThresh)[0]][0]
+    H,X1 = np.histogram(confusionMatrix[:,6],bins=nBins,range=(0,1))
+    precision = X1[np.where(np.cumsum(H) > nThresh)[0]][0]
+    H,X1 = np.histogram(confusionMatrix[:,7],bins=nBins,range=(0,1))
+    fMeasure = X1[np.where(np.cumsum(H) > nThresh)[0]][0]
+    return recall, precision, fMeasure
+
 if __name__ == "__main__":
-    #import generate_dataset as gd
-    #from generate_dataset import GriddedMeasurementPair
-    #indir = ['C:/Users/JHodges/Documents/wildfire-research/output/GoodCandidateComparison/']
-    #outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/NetworkTest/'
+    args = sys.argv
+    case = 2
     
-    indir = ['../networkData/20180213/']
-    outdir = indir[0]+'output/'
-    dataRawFile = indir[0]+'dataCluster.raw'
-    svdInputs = False
-    generatePlots=False
+    if case == 0: argsFile = '../config/rothermelFull.yaml'
+    elif case == 1: argsFile = '../config/rothermelFull_cnnmodel3.yaml'
+    elif case == 2: argsFile = '../config/rothermelFull_cnnmodel3_test.yaml'
+        
+    params = defaultdict(bool,yaml.load(open(argsFile,'r')))
+    dataRawFile = params['dataRawFile']
+    svdInputs = params['svdInputs']
+    generatePlots= params['generatePlots']
+    fakeRandom = params['fakeRandom']
+    modelFnc = locals()[params['modelFnc']]
+    model_dir = params['modelDir']
+    test_number = params['testNumber']
     
-    if svdInputs:
-        dataFile = dataRawFile+'.svd' #indir[0]+'dataSvd.out'
-    else:
-        dataFile = dataRawFile+'.out'
+    zeroChannels = params['zeroChannels']
+    dropChannels = params['dropChannels']
+    combineChannels = params['combineChannels']
+    ns = params['name']
     
-    case = 4
+    num = 11
+    train = False
+    findBestThresh = False
+    test = True
+    testAll = True
+    generatePlots = True
     
-    if case == 0:
+    # Load data
+    inData, outData = readPickledRawData(params['dataRawFile'])
+    #toPlots = [2998,2941,2944,2990,2995]
+    index = 2995
+    #inData, outData = addNoise(inData,outData,index,0,1)
     
-        # Define which parametric study to load
-        study2use = 3
-        neu = [2500,2500]
-        num = 1001
-        lr = 10**-8
-        af = 'custom'
-        basenumber = 5
-        k = 11
-        
-        ns = outdir+af
-        
-        for n in neu:
-            ns = ns+'_'+str(n)
-        if svdInputs:
-            ns = ns+'_svd_'+str(k)
-            
-        datas = gd.loadCandidates(indir,dataRawFile,forceRebuild=False)
-        newDatas, keys = gd.rearrangeDataset(datas,dataFile,svdInputs=svdInputs,k=k,forceRebuild=False)
-        
-        test_data, train_data = network_wildfire_train(newDatas,ns,dataFile,af,tn=5,neu=neu,num=num,lr=lr)
-        test_prediction = network_wildfire_test(test_data,ns)
+    # Apply pre-processing
+    #dataFile = dataRawFile+'.svd' if svdInputs else dataRawFile+'.out'
+    if zeroChannels: inData = zeroDataChannels(inData,channels=params['zeroChannels']['channels'])
+    if dropChannels: inData = dropDataChannels(inData,channels=params['dropChannels']['channels'])
+    if combineChannels: inData = combineDataChannels(inData,channels=params['combineChannels']['channels'])
     
-        if generatePlots:
-            
-            train_data[0][0,0:2500]=0
-            train_data[0][1,2500:5000]=0
-            train_data[0][2,5000:7500]=0
-            train_data[0][3,7500:10000]=0
-            train_data[0][4,10000:12500]=0
-            train_prediction = network_wildfire_test(train_data,ns)
-            
-            test_prediction_rm = []
-            dataSize = int(test_prediction[0].shape[0]**0.5)
-            
+    # Organize data for tensorflow
+    datas = (inData,outData)
+    testing_data, training_data = splitdata_tf(datas,test_number=test_number,fakeRandom=fakeRandom)
+    if testAll:
+        testing_data = datas
+    train_data = np.array(training_data[0],dtype=np.float32)
+    train_labels = np.array(training_data[1]/255,dtype=np.int64)
+    train_labels_exp = datas2labels(train_labels)
         
-            
-            if not svdInputs:
-                datas, names = gd.datasKeyRemap(test_data, keys)
-                names.append('Network Fire Mask')
-            else:
-                datas = []
-                names = []
-                names.extend(['Input Data','Validation Data','Network Fire Mask'])
-            for toPlot in range(0,test_data[0].shape[0]):
-                if svdInputs:
-                    svdData = test_data[0][toPlot].copy()
-                    svdData = svdData[0:int(len(svdData)/basenumber)]
-                    inData = gd.reconstructImg(svdData,k=k)
-                    outData = gd.reconstructImg(test_prediction[toPlot],k=k)
-                    valData = gd.reconstructImg(test_data[1][toPlot].copy(),k=k)
-                    datas.append([inData,valData])
-                else:
-                    
-                    #inData = np.reshape(test_data[0][toPlot][0:2500],(dataSize,dataSize))
-                    outData = np.reshape(test_prediction[toPlot],(dataSize,dataSize))
-                    #valData = np.reshape(test_data[1][toPlot][0:2500],(dataSize,dataSize))
-                #outData[outData<0]=0
-                data = datas[toPlot]
-                data.extend([outData])
-                
-                plotWildfireTest(data,names,
-                                 saveFig=True,saveName=ns+'testData_'+str(toPlot)+'.png')
-            if not svdInputs:
-                datas, names = gd.datasKeyRemap(train_data, keys)
-                names.append('Network Fire Mask')
-            else:
-                datas = []
-                names = []
-                names.extend(['Input Data','Network Fire Mask','Validation Data'])
-    elif case == 1:
-        tf.logging.set_verbosity(tf.logging.INFO)
-        ns = outdir+'convolve'
-        model_dir = "../models/realdata_dconv_case2"
-        
-        svdInputs = False
-        generatePlots=True
-        test_number = 10
-        fakeRandom=True
-        k = 11
-        num = 101
-        #datas = gd.loadCandidates(indir,dataRawFile,forceRebuild=False)
-        datas = []
-        newDatas, keys = gd.rearrangeDataset(datas,dataFile,svdInputs=svdInputs,k=k,forceRebuild=False,blurImage=False)
-        
-        testing_data, training_data = splitdata_tf(newDatas,test_number=test_number,fakeRandom=fakeRandom)
-        train_data = np.array(training_data[0],dtype=np.float32)
-        train_labels = np.array(3*training_data[1],dtype=np.int64)
-        train_labels_exp = datas2labels(train_labels)
-        
-        eval_data = np.array(testing_data[0],dtype=np.float32)
-        eval_labels = np.array(3*testing_data[1],dtype=np.int64)
-        eval_labels_exp = datas2labels(eval_labels)
-        
-        convolve_wildfire_train(train_data,train_labels_exp,epochs=num,model_dir=model_dir)
-        """
-        evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(train_data,train_labels_exp,model_dir=model_dir)
-        inputs = inputs2labels(train_data)
-        inputsImgs = arrayToImage(inputs)
-        prediction = labels2datas(prediction_exp)
-        truth = labels2datas(truth_exp)
-        
-        predictionImgs = arrayToImage(prediction)
-        truthImgs = arrayToImage(truth)
-        
-        for toPlot in range(90,100):
-            data = [inputsImgs[toPlot],truthImgs[toPlot],predictionImgs[toPlot]]
-            names = ['Input','Truth','Network']
-            
-            plotWildfireTest(data,names,
-                             saveFig=True,saveName=ns+'trainData_'+str(toPlot)+'.png')
-        """
-        evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(eval_data,eval_labels_exp,model_dir=model_dir)
-        inputs = inputs2labels(eval_data)
-        inputsImgs = arrayToImage(inputs)
-        prediction = labels2probs(prediction_exp,fireThresh=0.75)
-        truth = labels2datas(truth_exp,fireThresh=0.75)
-        
-        predictionImgs = arrayToImage(prediction,outStyle=True)
-        truthImgs = arrayToImage(truth,outStyle=True)
-        
-        for toPlot in range(0,10):
-            data = [inputsImgs[toPlot][0],inputsImgs[toPlot][1],inputsImgs[toPlot][2],inputsImgs[toPlot][3],predictionImgs[toPlot],truthImgs[toPlot]]
-            #data = [inputsImgs[toPlot],truthImgs[toPlot],predictionImgs[toPlot]]
-            clims = [[0,1],[0,1],[0,1],[0,1],[0,1],[0,1]]
-            names = ['Input Fire','Input Elev','Input WindX','Input WindY','Network','Truth']
-            
-            plotWildfireTest(data,names,clims=clims,
-                             saveFig=True,saveName=ns+'testData_'+str(toPlot)+'.png')
-    elif case == 2:
-        tf.logging.set_verbosity(tf.logging.INFO)
-        outdir = '../rothermelData/'
-        dataFile = outdir+'data_Rvaried.pkl'
-        ns = outdir+'test'
-        [inData,outData] = uc.readPickle(dataFile)
-        datas = (inData,outData)
-        model_dir = "../models/rothermel_trained_dconv_case2_Rvaried"
-        
-        svdInputs = False
-        generatePlots=True
-        test_number = 10
-        fakeRandom=True
-        k = 11
-        num = 101
-
-        testing_data, training_data = splitdata_tf(datas,test_number=test_number,fakeRandom=fakeRandom)
-        train_data = np.array(training_data[0],dtype=np.float32)
-        train_labels = np.array(training_data[1]/255,dtype=np.int64)
-        train_labels_exp = datas2labels(train_labels)
-        
-        eval_data = np.array(testing_data[0],dtype=np.float32)
-        eval_labels = np.array(testing_data[1]/255,dtype=np.int64)
-        eval_labels_exp = datas2labels(eval_labels)
-        
-        #convolve_wildfire_train(train_data,train_labels_exp,epochs=num,model_dir=model_dir)
-        #evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(train_data,train_labels_exp,model_dir=model_dir)
-        #evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(eval_data,eval_labels_exp,model_dir=model_dir)
-        inputs = inputs2labels(eval_data)
-        inputsImgs = arrayToImage(inputs)
-        prediction = labels2probs(prediction_exp,fireThresh=0.75)
-        truth = labels2datas(truth_exp,fireThresh=0.75)
-        
-        predictionImgs = arrayToImage(prediction,outStyle=True)
-        truthImgs = arrayToImage(truth,outStyle=True)
-        
-        for toPlot in range(0,10):
-            data = [inputsImgs[toPlot][0],inputsImgs[toPlot][1],inputsImgs[toPlot][2],inputsImgs[toPlot][3],predictionImgs[toPlot],truthImgs[toPlot]]
-            #data = [inputsImgs[toPlot],truthImgs[toPlot],predictionImgs[toPlot]]
-            clims = [[0,1],[-20,20],[-500,500],[-500,500],[0,1],[0,1]]
-            names = ['Input Fire','Input Elev','Input WindX','Input WindY','Network','Truth']
-            
-            plotWildfireTest(data,names,clims=clims,
-                             saveFig=True,saveName=ns+'testData_'+str(toPlot)+'.png')
-    elif case == 3:
-        tf.logging.set_verbosity(tf.logging.INFO)
-        inputStyle = 'moistureRemade'
-        modelType = 'cnnModel_e56a28d'
-        modelType = 'cnnModel_unitTest1'
-        modelType = 'cnnModel_e56'
-        if False:
-            outdir = '../rothermelData/'
-            dataFile = outdir+'dataBehaveMoist12000.pkl'
-            ns = outdir+'behaveMoistData'
-            [inData,outData] = uc.readPickle(dataFile)
-            datas = (inData,outData)
-        else:
-            outdir = '../rothermelData/'
-            dataFile = outdir+'dataBehaveMoist3000'
-            files = glob.glob(dataFile+'*.pkl')
-            ns = outdir+'behaveMoistData'
-            allIn = []
-            allOut = []
-            for i in range(0,len(files)):
-                [inData,outData] = uc.readPickle(files[i])
-                allIn.extend(inData)
-                allOut.extend(outData)
-            inData = np.array(allIn)
-            outData = np.array(allOut)
-        
-        if inputStyle == 'dropped':
-            inData = dropDataChannels(inData)
-            model_dir = "../models/behaveMoist_trained_dconv_case2_d"
-        elif inputStyle == 'zeroed':
-            inData = zeroDataChannels(inData)
-            model_dir = "../models/behaveMoist_trained_dconv_case2_z"
-        elif inputStyle == 'moistureRemade':
-            print(inData[0][::2500])
-            inData = dropDataChannels(
-                    inData,channels=[True,True,True,True,True,True,True,True,True,True,True,False,False,True])
-            print(inData[0][::2500])
-            inData = combineDataChannels(
-                    inData,channels=[True,True,True,True,False,False,False,False,False,True,True],combineType='max')
-            print(inData[0][::2500])
-            model_dir = "../models/behaveMoist_trained_dconv_case2_m"
-        elif inputStyle == 'full':
-            model_dir = "../models/behaveMoist_trained_dconv_case2"
-        
-        if modelType == 'cnnModel2':
-            modelFnc = cnnModel2
-            model_dir = "../models/behaveMoist_trained_dconv_case2_m"
-        elif modelType == 'cnnModel3':
-            modelFnc = cnnModel3
-            model_dir = "../models/cnnModel3_m"
-        elif modelType == 'cnnModel_e64a128d':
-            modelFnc = cnnModel_e64a128d
-            model_dir = "../models/cnnModel_e64a128d_m"
-        elif modelType == 'cnnModel_e56a28d':
-            modelFnc = cnnModel_e56a28d
-            model_dir = "../models/cnnModel_e56a28d_m"
-        elif modelType == 'cnnModel_unitTest1':
-            modelFnc = cnnModel_unitTest1
-            model_dir = "../models/cnnModel_unitTest1_m"
-        elif modelType == 'cnnModel_e56':
-            modelFnc = cnnModel_e56
-            model_dir = "../models/cnnModel_e56_m"
-        
-        datas = (inData,outData)
-        
-        svdInputs = False
-        generatePlots=True
-        test_number = 100
-        fakeRandom=True
-        k = 11
-        num = 5001
-
-        testing_data, training_data = splitdata_tf(datas,test_number=test_number,fakeRandom=fakeRandom)
-        train_data = np.array(training_data[0],dtype=np.float32)
-        train_labels = np.array(training_data[1]/255,dtype=np.int64)
-        train_labels_exp = datas2labels(train_labels)
-        
-        eval_data = np.array(testing_data[0],dtype=np.float32)
-        eval_labels = np.array(testing_data[1]/255,dtype=np.int64)
-        eval_labels_exp = datas2labels(eval_labels)
-        
+    eval_data = np.array(testing_data[0],dtype=np.float32)
+    eval_labels = np.array(testing_data[1]/255,dtype=np.int64)
+    eval_labels_exp = datas2labels(eval_labels)
+    #assert False, "Stopped"
+    if train:
         convolve_wildfire_train(train_data,train_labels_exp,modelFnc,epochs=num,model_dir=model_dir)
-        #evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(train_data,train_labels_exp,model_dir=model_dir)
-        evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(eval_data,eval_labels_exp,modelFnc,model_dir=model_dir)
-        inputs = inputs2labels(eval_data)
+    
+    if findBestThresh:
+        evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(train_data,train_labels_exp,modelFnc,model_dir=model_dir)
+        inputs = inputs2labels(eval_data,eval_labels)
         inputsImgs = arrayToImage(inputs)
-        prediction = labels2probs(prediction_exp,fireThresh=0.75)
+        prediction = labels2probs(prediction_exp,fireThresh=1.0)
+        truth = labels2datas(truth_exp,fireThresh=0.75)
+        
+        predictionImgs = arrayToImage(prediction,outStyle=True)
+        truthImgs = arrayToImage(truth,outStyle=True)
+        bestThresh, bestConfusionMatrix, threshes, fMeasures = findBestThreshold(predictionImgs,truthImgs,inputsImgs)
+        plotThresholdFMeasure(threshes,fMeasures)
+        print(bestThresh)
+    else:
+        #bestThresh = 0.28 # Test Data
+        bestThresh = 0.41 # Training Data
+    
+    if test:
+        t1 = uc.tic()
+        evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(eval_data,eval_labels_exp,modelFnc,model_dir=model_dir)
+        print(uc.toc(t1))
+        inputs = inputs2labels(eval_data,eval_labels)
+        inputsImgs = arrayToImage(inputs)
+        prediction = labels2probs(prediction_exp,fireThresh=1.0)
         truth = labels2datas(truth_exp,fireThresh=0.75)
         
         predictionImgs = arrayToImage(prediction,outStyle=True)
         truthImgs = arrayToImage(truth,outStyle=True)
         
-        for toPlot in range(0,99):
+        confusionMatrix = []
+        for i in range(0,len(truthImgs)):
+            pImg = predictionImgs[i].copy()
+            tImg = truthImgs[i].copy()
+            iImg = inputsImgs[i][0]
+            confusionMatrix.append(findConfusionMatrix(pImg,tImg,bestThresh,iImg))
+        confusionMatrix = np.array(confusionMatrix)
+        averageConfusionMatrix = np.mean(confusionMatrix,axis=0)
+        stdConfusionMatrix = np.std(confusionMatrix,axis=0)
+        print("True Negative: %.2f +- %.2f"%(averageConfusionMatrix[0],stdConfusionMatrix[0]))
+        print("True Positive: %.2f +- %.2f"%(averageConfusionMatrix[3],stdConfusionMatrix[3]))
+        print("False Negative: %.2f +- %.2f"%(averageConfusionMatrix[1],stdConfusionMatrix[1]))
+        print("False Positive: %.2f +- %.2f"%(averageConfusionMatrix[2],stdConfusionMatrix[2]))
+        print("Accuracy: %.2f +- %.2f"%(averageConfusionMatrix[4],stdConfusionMatrix[4]))
+        print("Recall: %.2f +- %.2f"%(averageConfusionMatrix[5],stdConfusionMatrix[5]))
+        print("Precision: %.2f +- %.2f"%(averageConfusionMatrix[6],stdConfusionMatrix[6]))
+        print("fMeasure: %.2f +- %.2f"%(averageConfusionMatrix[7],stdConfusionMatrix[7]))
+        #print(averageConfusionMatrix)
+        
+        fs = 32
+        plt.figure(figsize=(12,12))
+        plt.hist(confusionMatrix[:,7],bins=20,range=(0,1))
+        plt.xlabel('F-Measure',fontsize=fs)
+        plt.ylabel('Number of Occurrences',fontsize=fs)
+        plt.xlim(-0.01,1.01)
+        plt.ylim(0,3000)
+        plt.tick_params(labelsize=fs)
+        plt.tight_layout()
+        plt.savefig(ns+'_F_pdf.eps')
+        nBins = 1000
+        
+        recallP80, precisionP80, fMeasureP80 = getPercentile(confusionMatrix,nBins,600)
+        recallP90, precisionP90, fMeasureP90 = getPercentile(confusionMatrix,nBins,300)
+        recallP95, precisionP95, fMeasureP95 = getPercentile(confusionMatrix,nBins,150)
+        
+        recallM = averageConfusionMatrix[5]
+        precisionM = averageConfusionMatrix[6]
+        fMeasureM = averageConfusionMatrix[7]
+        
+        recallP = confusionMatrix[index,5]
+        precisionP = confusionMatrix[index,6]
+        fMeasureP = confusionMatrix[index,7]
+        '''
+        print("Metric\t\tM\t80\t90\t95")
+        print("%s\t\t%.2f\t%.2f\t%.2f\t%.2f"%("Recall",recallM,recallP80,recallP90,recallP95))
+        print("%s\t%.2f\t%.2f\t%.2f\t%.2f"%("Precision",precisionM,precisionP80,precisionP90,precisionP95))
+        print("%s\t%.2f\t%.2f\t%.2f\t%.2f"%("FMeasure",fMeasureM,fMeasureP80,fMeasureP90,fMeasureP95))
+        '''
+        print("Metric\t\tP\tM\t80\t90\t95")
+        print("%s\t\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f"%("Recall",recallP,recallM,recallP80,recallP90,recallP95))
+        print("%s\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f"%("Precision",precisionP,precisionM,precisionP80,precisionP90,precisionP95))
+        print("%s\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f"%("FMeasure",fMeasureP,fMeasureM,fMeasureP80,fMeasureP90,fMeasureP95))
+        
+        
+        inds = np.where(confusionMatrix[:,7] < 0.8)[0]
+        plt.figure(figsize=(12,12))
+        plt.hist(confusionMatrix[inds,8],bins=25,range=(0,100))#,normed=True)
+        plt.xlabel('Input Fire Size (px)',fontsize=fs)
+        plt.ylabel('Number of Occurrences',fontsize=fs)
+        plt.xlim(0,100)
+        plt.ylim(0,len(inds))
+        plt.tick_params(labelsize=fs)
+        plt.tight_layout()
+        plt.savefig(ns+'_fireSize_when_F_lt_0.8.eps')
+        
+    if generatePlots:
+        fs = 48
+        lnwidth = 3
+        xmin = 0
+        xmax = inputsImgs[0][0].shape[1]
+        xticks = np.linspace(xmin,xmax,int(round((xmax-xmin)/10)+1))
+        ymin = 0
+        ymax = inputsImgs[0][0].shape[0]
+        yticks = np.linspace(ymin,ymax,int(round((ymax-ymin)/10)+1))
+        toPlots = [2998,2941,2944,2990,2995]
+        #toPlots = [0,1,2,3,4,5,6,7,8,9,10]
+        ns = '../results/'
+        for i in range(0,len(toPlots),1):
+            toPlot = toPlots[i]
+            fusedFire = truthImgs[toPlot].copy()
+            fusedFire[fusedFire == 0] = -6.0
+            fusedFire[inputsImgs[toPlot][0] > 0] = 0.0
+            fusedFire[fusedFire > 0] = 6.0
+            #saveName = ns+'independentTest_'+str(toPlot)+'%s.png'%('fused')
+            saveName = ns+'exampleFusedFire%.0f.eps'%(i)
+            clim = [-6,6]
+            
+            fusedFire[1,2] = 0
+            fusedFire[5,2] = 6
+            
+            fig = plt.figure(figsize=(12,12))
+            ax = fig.add_subplot(1,1,1)
+            ax.tick_params(axis='both',labelsize=fs)
+            plt.xticks(xticks)
+            plt.yticks(yticks)
+            plt.xlabel('km',fontsize=fs)
+            plt.ylabel('km',fontsize=fs)
+            img = ax.imshow(fusedFire,cmap='hot_r',vmin=clim[0],vmax=clim[-1])
+            plt.tight_layout()
+            ax.annotate('Initial Burn Map\nBurn Map After 6 hours',xy=(5,6.0),xycoords='data',textcoords='data',xytext=(5,6.0),fontsize=fs)
+            fig.savefig(saveName)
+            plt.clf()
+            plt.close(fig)
+
+
+            pImg = predictionImgs[toPlot].copy()
+            #saveName = ns+'independentTest_'+str(toPlot)+'%s.png'%('networkRaw')
+            saveName = ns+'exampleNetworkRaw%.0f.eps'%(i)
+            clim = [0,1]
+            np.savetxt(ns+'exampleNetworkRaw%.0f.csv'%(i),pImg,delimiter=',')
+            
+            fig = plt.figure(figsize=(16,12))
+            ax = fig.add_subplot(1,1,1)
+            ax.tick_params(axis='both',labelsize=fs)
+            plt.xticks(xticks)
+            plt.yticks(yticks)
+            plt.xlabel('km',fontsize=fs)
+            plt.ylabel('km',fontsize=fs)
+            img = ax.imshow(pImg,cmap='hot_r',vmin=clim[0],vmax=clim[-1])
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right",size="5%", pad=0.05)
+            c = plt.colorbar(img,ticks=[1.0,0.8,0.6,0.4,0.2,0.0],cax=cax)
+            plt.tick_params(labelsize=fs)
+            plt.ylabel('Probability of Fire',fontsize=fs)
+            plt.tight_layout()
+            #ax.annotate('Initial Burn Map\nBurn Map After 6 hours',xy=(5,4.75),xycoords='data',textcoords='data',xytext=(5,4.75),fontsize=fs)
+            fig.savefig(saveName)
+            plt.clf()
+            plt.close(fig)
+
+
+
+
+
+            pImg = postProcessFirePerimiter(predictionImgs[toPlot].copy(),bestThresh)
+            #saveName = ns+'independentTest_'+str(toPlot)+'%s.png'%('networkProcessed')
+            saveName = ns+'exampleNetworkProcessed%.0f.eps'%(i)
+            clim = [0,1]
+            np.savetxt(ns+'exampleNetworkProcessed%.0f.csv'%(i),pImg,delimiter=',')
+            
+            fig = plt.figure(figsize=(16,12))
+            ax = fig.add_subplot(1,1,1)
+            ax.tick_params(axis='both',labelsize=fs)
+            plt.xticks(xticks)
+            plt.yticks(yticks)
+            plt.xlabel('km',fontsize=fs)
+            plt.ylabel('km',fontsize=fs)
+            img = ax.imshow(pImg,cmap='hot_r',vmin=clim[0],vmax=clim[-1])
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right",size="5%", pad=0.05)
+            c = plt.colorbar(img,ticks=[1.0,0.8,0.6,0.4,0.2,0.0],cax=cax)
+            plt.tick_params(labelsize=fs)
+            plt.ylabel('Probability of Fire',fontsize=fs)
+            plt.tight_layout()
+            #ax.annotate('Initial Burn Map\nBurn Map After 6 hours',xy=(5,4.75),xycoords='data',textcoords='data',xytext=(5,4.75),fontsize=fs)
+            fig.savefig(saveName)
+            plt.clf()
+            plt.close(fig)
+            
+            pImg[pImg>bestThresh] = 1.0
+            errorImg = pImg-truthImgs[toPlot]
+            #saveName = ns+'independentTest_'+str(toPlot)+'%s.png'%('error')
+            saveName = ns+'exampleNetworkError%.0f.eps'%(i)
+            errorImg[errorImg == 1] = 2
+            errorImg[errorImg == 0] = -2
+            errorImg[errorImg == -1] = 1
+            errorImg[errorImg == -2] = 0
+            
+            errorImg[1,2] = 1
+            errorImg[5,2] = 2
+            
+            clim = [0,2]
+
+            fig = plt.figure(figsize=(12,12))
+            ax = fig.add_subplot(1,1,1)
+            ax.tick_params(axis='both',labelsize=fs)
+            plt.xticks(xticks)
+            plt.yticks(yticks)
+            plt.xlabel('km',fontsize=fs)
+            plt.ylabel('km',fontsize=fs)
+            img = ax.imshow(errorImg,cmap='hot_r',vmin=clim[0],vmax=clim[-1])
+            ax.annotate('Omission\nCommission',xy=(5,6.0),xycoords='data',textcoords='data',xytext=(5,6.0),fontsize=fs)
+            plt.tight_layout()
+            #ax.annotate('Initial Burn Map\nBurn Map After 6 hours',xy=(5,4.75),xycoords='data',textcoords='data',xytext=(5,4.75),fontsize=fs)
+            fig.savefig(saveName)
+            plt.clf()
+            plt.close(fig)
+            
+            
+            '''
+            
+            
+            inputInds = params['plotDetails']['inputInds']
+            inputClims = params['plotDetails']['inputClims']
+            inputNames = params['plotDetails']['inputNames']
+            outputInds = params['plotDetails']['outputInds']
+            outputClims = params['plotDetails']['outputClims']
+            outputNames = params['plotDetails']['outputNames']
+            
+            data = []
+            for ind in inputInds:
+                data.append(inputsImgs[toPlot][ind])
+            data.append(predictionImgs[toPlot])
+            data.append(truthImgs[toPlot])
+            
+            tmp = truthImgs[toPlot].copy()
+            tmp[tmp == 0] = -6.0
+            tmp[data[0] > 0] = 0.0
+            tmp[tmp > 0] = 6.0
+            
+            data.append(tmp)
+            
+            clims = []
+            for clim in inputClims:
+                clims.append(clim)
+            for clim in outputClims:
+                clims.append(clim)
+            clims.append([-6,6])
+            
+            names = []
+            for name in inputNames:
+                names.append(name)
+            for name in outputNames:
+                names.append(name)
+            names.append(['FusedIO'])
+            
+            pImg = postProcessFirePerimiter(predictionImgs[toPlot].copy(),bestThresh)
+            data.append(pImg.copy())
+            names.append('Network Processed')
+            clims.append([0,1])
+            
+            pImg[pImg>bestThresh] = 1.0
+            errorImg = pImg-truthImgs[toPlot]
+
+            data.append(errorImg)
+            names.append('Error')
+            clims.append([-1,1])
+            
+            labels=['Fire','Probability of Fire','Fire','Hours','Probability of Fire','Omission Error Commission Error']
+            
+            #confusionMatrix.append([TN,FN,FP,TP,accuracy,recall,precision,fMeasure])
+            #errors.append(error)
+            #plotWildfireTest(data,names,clims=clims,labels=labels,gridOn=False,
+            #                 saveFig=True,saveName=ns+'independentTest_'+str(toPlot)+'.png')
+            #plotWildfirePaper(data,names,clims=clims,labels=labels,gridOn=False,
+            #                 saveFig=True,saveName=ns+'independentTest_'+str(toPlot)+'.png')
+            #plotIndividualChannels(data,names,clims=clims,
+            #                 saveFig=True,saveName=ns+'testData_'+str(toPlot))
+            
+            fntsize = 16
+            lnwidth = 3
+            xmin = 0
+            xmax = datas[0].shape[1]
+            xticks = np.linspace(xmin,xmax,int(round((xmax-xmin)/10)+1))
+            ymin = 0
+            ymax = datas[0].shape[0]
+            yticks = np.linspace(ymin,ymax,int(round((ymax-ymin)/10)+1))
+            for i in range(0,len(names)):
+                fig = plt.figure(figsize=(12,12))
+                key = names[i]
+                saveName = ns+'independentTest_'+str(toPlot)+'%s.png'%(key)
+                ax = fig.add_subplot(1,1,1)
+                ax.tick_params(axis='both',labelsize=fntsize)
+                plt.xticks(xticks)
+                plt.yticks(yticks)
+                plt.xlabel('km',fontsize=fntsize)
+                plt.ylabel('km',fontsize=fntsize)
+                #plt.xlabel('Longitude',fontsize=fntsize)
+                #plt.ylabel('Latitude',fontsize=fntsize)
+                #plt.title(key,fontsize=fntsize)
+        
+                if clims is None:
+                    clim = np.linspace(0,1,10)
+                    label = ''
+                else:
+                    clim = clims[i]
+                if labels is None:
+                    label = ''
+                else:
+                    label = labels[i]
+                img = ax.imshow(data[i],cmap='hot_r',vmin=clim[0],vmax=clim[-1])#,vmin=0,vmax=1)
+                #img = ax.contourf(self.longitude,self.latitude,getattr(self,key),levels=clim,cmap=cmap)
+                img_cb = plt.colorbar(img,ax=ax,label=label)
+        
+                img_cb.set_label(label=label,fontsize=fntsize)
+                img_cb.ax.tick_params(axis='both',labelsize=fntsize)
+                for ln in ax.lines:
+                    ln.set_linewidth(lnwidth)
+                plt.tight_layout()
+                fig.savefig(saveName,dpi=300)
+                
+                plt.clf()
+                plt.close(fig)
+
+
+
+
+
+
+            '''
+            '''
             #data = [inputsImgs[toPlot][0],inputsImgs[toPlot][1],inputsImgs[toPlot][2],inputsImgs[toPlot][3],predictionImgs[toPlot],truthImgs[toPlot]]
             if inputStyle == 'dropped':
                 data = [inputsImgs[toPlot][0],inputsImgs[toPlot][1],
@@ -1661,53 +1887,8 @@ if __name__ == "__main__":
                          'Canopy Height','Crown Ratio',
                          'model',
                          'Network','Truth']
-
+    
             #data = [inputsImgs[toPlot],truthImgs[toPlot],predictionImgs[toPlot]]
-            
-
+            '''
+    
             #[elevImg,windX,windY,lhmImg,lwmImg,m1hImg,canopyCoverImg,canopyHeightImg,crownRatioImg,modelImg]
-            tmp = data[7].copy()
-            tmp[tmp < 0.2] = 0.0
-            tmp = scsi.medfilt2d(tmp)
-            #tmp = skimage.feature.canny(tmp,sigma=1.25)
-            data.append(tmp)
-            names.append('Network Processed')
-            clims.append([0,1])
-            #data[7] = tmp
-            
-            names.append('Error')
-            tmp = data[9].copy()
-            tmp[tmp>0.2] = 1.0
-            error = tmp-data[8]
-            data.append(error)
-            clims.append([-1,1])
-            
-            plotWildfireTest(data,names,clims=clims,
-                             saveFig=True,saveName=ns+'testData_'+str(toPlot)+'.png')
-            #plotIndividualChannels(data,names,clims=clims,
-            #                 saveFig=True,saveName=ns+'testData_'+str(toPlot))
-            
-    elif case == 4:
-        tf.logging.set_verbosity(tf.logging.INFO)
-        
-        outdir = '../rothermelData/'
-        model_dir = "../models/cnnModel3_m"
-        model_dir = '../models/cnnModel_e64a128d_m'
-        model_dir = '../models/cnnModel_e56a28d_m'
-        model_dir = '../models/cnnModel_unitTest1_m'
-        model_dir = "../models/cnnModel_e56_m"
-        modelFnc = cnnModel_e56
-        
-        weights = tfTrainedVars(model_dir,modelFnc)
-        
-        #tmp = getattr(weights,'1_kernel')
-        #plt.imshow(tmp[:,:,0,0],cmap='gray')
-        
-        weights.plotWeight('conv1_kernel',[0,0,0],None)
-        names = ['Current Fire','Elevation',
-                 'EW Wind','NS Wind',
-                 'Moisture Content','Canopy Cover',
-                 'Fuel Type',
-                 'Network','Truth']
-        
-        

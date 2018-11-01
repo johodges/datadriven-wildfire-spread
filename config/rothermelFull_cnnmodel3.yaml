@@ -1,0 +1,24 @@
+name: '../results/rothermelFull_cnnModel3'
+dataRawFile: '../rothermelData/dataRemake3000'
+svdInputs: False
+generatePlots: True
+fakeRandom: True
+modelDir: "../models/rothermelFull_cnnModel_3"
+modelFnc: cnnModel3
+testNumber: 100
+plotDetails2:
+  inputInds: [0,1,2,3,4,5,6,7,8,9,10,11,12]
+  inputClims: [[0,1],[-20,20],[-20,20],[-20,20],[30,150],[30,150],[0,40],[0,40],[0,40],[0,1],[0,20],[0,1],[0,52]]
+  inputNames: ['Current Fire','Elevation','Current WindX','Current WindY','Live Herb M','Live Wood M','Moisture 1-h','Moisture 10-h','Moisture 100-h','Canopy Cover','Canopy Height','Crown Ratio','Fuel Model']
+  outputInds: [0]
+  outputClims: [[0,1],[0,1]]
+  outputNames: ['Next Fire ANN','Next Fire Truth']
+plotDetails:
+  inputInds: [0]
+  inputClims: [[0,1]]
+  inputNames: ['Current Fire']
+  outputInds: [0]
+  outputClims: [[0,1],[0,1]]
+  outputNames: ['Next Fire ANN','Next Fire Truth']
+  
+  

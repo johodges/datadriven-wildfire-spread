@@ -6,6 +6,10 @@ Created on Mon Mar  5 13:17:47 2018
 """
 
 import numpy as np
+import matplotlib
+matplotlib.rcParams['ps.useafm'] = True
+matplotlib.rcParams['pdf.use14corefonts'] = True
+#matplotlib.rcParams['text.usetex'] = True
 import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 from scipy.ndimage.interpolation import zoom
@@ -1063,11 +1067,11 @@ def calculateSpreadRateAtVector2(forwardSpreadRate,backSpreadRate,eccentricity,d
             dirFactor = ((np.cos(betaRad)+1)/2)
             
             # This is the equation according to the BehavePlus source code:
-            #rosVector = forwardSpreadRate * (1.0-eccentricity) / (1.0-eccentricity* np.cos(betaRad))
+            rosVector = forwardSpreadRate * (1.0-eccentricity) / (1.0-eccentricity* np.cos(betaRad))
             
             # This is the equaiton I have found to match BehavePlus results:
             #rosVector = ((1-abs(betaRad)/3.1415926535)*forwardSpreadRate * dirFactor)
-            rosVector = ((1-abs(betaRad)/3.1415926535)*(forwardSpreadRate-backSpreadRate) * dirFactor)+backSpreadRate
+            #rosVector = ((1-abs(betaRad)/3.1415926535)*(forwardSpreadRate-backSpreadRate) * dirFactor)+backSpreadRate
             
             # Combining the two smooths out the peak
             #rosVector = ((1-abs(betaRad)/3.1415926535)*forwardSpreadRate * dirFactor + (abs(betaRad)/3.1415926535)*rosVector)
@@ -1080,6 +1084,8 @@ def calculateSpreadRateAtVector2(forwardSpreadRate,backSpreadRate,eccentricity,d
             #print(dirOfInterest,betaRad,rosVector)
         else:
             rosVector = forwardSpreadRate
+        if rosVector < backSpreadRate:
+            rosVector = backSpreadRate
     else:
         rosVector = 0.0
     return rosVector
@@ -1430,7 +1436,7 @@ def visualizeInputValues(directions,rosVectors,params,resX=50,resY=50):
     y = np.array(rosVectorsKmHr)*np.cos(directionsRad)
     
     imgFire = rothermelOuputToImgMulti(directionsRad,rosVectorsKmHr,[48,42,36,30,24,18,12,6],resX=resX,resY=resY)
-    
+    imgFire[25,25] = 0
     elevImg = slopeToElevImg(params['slope'],params['aspect'],resX=resX,resY=resY)
     
     windDirRad = params['windDir']*3.1415926536/180.0
@@ -1460,7 +1466,7 @@ def visualizeInputValues(directions,rosVectors,params,resX=50,resY=50):
     plt.figure(figsize=(10,14))
     plt.suptitle('Fuel Model:%s'%(params['model']))
     plt.subplot(3,2,1)
-    plt.imshow(imgFire,cmap='jet')
+    plt.imshow(imgFire,cmap='gray_r')
     c = plt.colorbar(ticks=[48,36,24,12,0])
     plt.title('Fire spread')
     plt.xlabel('km')
@@ -1508,6 +1514,7 @@ def visualizeInputValues(directions,rosVectors,params,resX=50,resY=50):
     #plt.xlim([x.min()-xRange/2,x.max()+xRange/2])
     #plt.ylim([y.min()-yRange/2,y.max()+yRange/2])
     #plt.title('Rate of Spread')
+    return imgFire
 
 def paramListTodict(paramsRaw):
     params = dict()
@@ -1527,7 +1534,9 @@ def paramListTodict(paramsRaw):
     return params
 
 def getStandardParams():
-    paramList = ['FM1',0,0,0.5,8,6,4,60,60,10,0,0.5,0]
+    # model,canopyCover/100,Height,Ratio,m1h,m10h,m100h,lhm,l2m,windSpeed,windDir,slope,aspect
+    #paramList = ['FM1',0,0,0.5,8,6,4,60,60,10,0,0.5,0]
+    paramList = ['FM1',0,0,0.5,8,9,10,60,60,10,0,0.5,0]
     params = paramListTodict(paramList)
     return params
 
@@ -1599,6 +1608,66 @@ def getStandardParamsInput():
     paramsInput['startTime']    = [None,0,24] # Fire start hour
     
     return paramsInput
+
+def manyFiresInputFigure(modelInputs):
+
+    fig, ax = plt.subplots(figsize=(8,8))
+    a = []
+    lims = [[-30,30],[-20,20],[-20,20],[30,150],[30,150],[0,30],[0,30],[0,30],[0,1],[0,20],[0,1],[0,53]]
+    names = ['Elevation','East Wind','North Wind','Live Herbaceous Moisture','Live Woody Moisture','1-Hour Moisture','10-Hour Moisture','100-Hour Moisture','Canopy Cover','Canopy Height','Crown Ratio','Fuel Model']
+    textOffset = [0]
+    #modelInputs = [elevImg,windX,windY,lhmImg,lwmImg,m1hImg,m10hImg,m100hImg,canopyCoverImg,canopyHeightImg,crownRatioImg,modelImg]
+    for i in range(len(modelInputs)-1,-1,-1):
+        img = modelInputs[i].copy()
+        img[-1,-1] = lims[i][0]
+        img[-1,-2] = lims[i][1]
+        oi = OffsetImage(img, zoom = 2.0, cmap='jet')
+        box = AnnotationBbox(oi, (-0.5*i,1*i), frameon=True)
+        a.append(ax.add_artist(box))
+        ax.annotate(names[i],xy=(-0.5*i-1.1,1*i-0.9),xycoords='data',textcoords='data',xytext=(-0.5*i-4-(len(names[i])-10)*0.1,1*i-0.85),arrowprops=dict(facecolor='black',shrink=0.05))
+    i = -1
+    oi = OffsetImage(imgFire, zoom = 2.0, cmap='jet')
+    box = AnnotationBbox(oi, (-0.5*i,1*i), frameon=True)
+    ax.annotate('Fire Perimiter',xy=(-0.5*i-1.1,1*i-0.9),xycoords='data',textcoords='data',xytext=(-0.5*i-4,1*i-0.85),arrowprops=dict(facecolor='black',shrink=0.05))
+    a.append(ax.add_artist(box))
+    plt.xlim(-2,6.15)
+    plt.ylim(-1.9,12.2)
+    plt.xlim(-9.0,1.4)
+    #plt.ylim(-50,50)
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig('inputsExampleManyFires.png',dpi=300)
+
+def makeFirePerimetersFigure(imgFire):
+    import skimage.transform as sktf
+    import skimage.filters as skfi
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    oi = skfi.gaussian(imgFire,sigma=1.0,preserve_range=True)
+    imgFire = visualizeInputValues(directions,rosVectors,params,resX=250,resY=250)
+    imgFire[125:126,125:126] = 0
+    imgFire = imgFire[25:175,100:]
+    imgFire = imgFire[::-1,:]
+    #oi = OffsetImage(imgFire, zoom = 2.0, cmap='jet')
+    plt.figure(figsize=(12,12))
+    ax = plt.gca()
+    fs=32
+    im = ax.imshow(imgFire,cmap='hot_r')
+    plt.gca().invert_yaxis()
+    plt.xlabel('km',fontsize=fs)
+    plt.ylabel('km',fontsize=fs)
+    plt.tick_params(labelsize=fs)
+    plt.xticks([0,20,40,60,80,100,120,140])
+    plt.yticks([0,20,40,60,80,100,120,140])
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right",size="5%", pad=0.05)
+    c = plt.colorbar(im,ticks=[48,36,24,12,0],cax=cax)
+    #plt.title('Fire spread')
+    plt.tick_params(labelsize=fs)
+    plt.ylabel('Hours',fontsize=fs)
+    #c.ax.set_label(fontsize=fs)
+    plt.tight_layout()
+    
+    plt.savefig('exampleFirePerimiter.eps')
 
 if __name__ == "__main__":
     ''' case0: Generate 1 set of random inputs and visualize the results.
@@ -1741,28 +1810,135 @@ if __name__ == "__main__":
         datasOut = []
         i = 0
         k = 0
-        while i < 1:
+        t1 = uc.tic()
+        while i <= 0:
         #for i in range(0,4000):
             params = getRandomConditions(paramsInput,allowDynamicModels=True)
+            if i == 0:
+                params['aspect'] = 160
+                params['model'] = 'FM1'
+                params['slope'] = 0.805
+                params['m1h'] = 5.26
+                params['m10h'] = 6.26
+                params['m100h'] = 7.26
+                params['lhm'] = 69
+                params['lwm'] = 49
+                params['canopyCover'] = 0.7
+                params['canopyHeight'] = 14
+                params['crownRatio'] = 0.2
+                params['windDir'] = 34
+                params['windSpeed'] = 13.5
+
             directions, rosVectors = getROSfromParams(params,toPrint=False)
             params['modelInd'] = modelIndexDict[params['model']]
-            fireImages, modelInputs = visualizeInputImgs(directions,rosVectors,params,resX=resX,resY=resY,toPlot=False)
-            for j in range(0,len(fireImages)-1):
-                data = [fireImages[j]]
-                data.extend(modelInputs)
-                datasIn.append(rearrangeDatas(data))
-                datasOut.append(rearrangeDatas([fireImages[j+1]]))
+            if True:
+                fireImages, modelInputs = visualizeInputImgs(directions,rosVectors,params,resX=resX,resY=resY,toPlot=False)
+                for j in range(0,len(fireImages)-1):
+                    data = [fireImages[j]]
+                    data.extend(modelInputs)
+                    datasIn.append(rearrangeDatas(data))
+                    datasOut.append(rearrangeDatas([fireImages[j+1]]))
             
-            if i % 1000 == 0:
+            if i % 1000 == 0 and False:
                 datasIn = np.squeeze(datasIn)
                 datasOut = np.squeeze(datasOut)
-                uc.dumpPickle([datasIn,datasOut],outdir+'dataBehaveMoist'+str(len(datasOut))+'_'+str(k)+'.pkl')
+                uc.dumpPickle([datasIn,datasOut],outdir+'dataRemakeTest'+str(len(datasOut))+'_'+str(k)+'.pkl')
                 datasIn = []
                 datasOut = []
                 k = k + 1
             i = i + 1
+        print(uc.toc(t1))
+        #assert False, "Stopped"
         #uc.dumpPickle([datasIn,datasOut],outdir+'dataBehaveMoist'+str(len(datasOut))+'_'+str(k)+'.pkl')
-        visualizeInputValues(directions,rosVectors,params,resX=resX,resY=resY)
+        imgFire = visualizeInputValues(directions,rosVectors,params,resX=resX,resY=resY)
+        
+        from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+        
+        
+        networkRaw = np.loadtxt('exampleNetworkRaw0.csv',delimiter=',')
+        networkProcessed = np.loadtxt('exampleNetworkProcessed0.csv',delimiter=',')
+        
+        fs = 16
+        
+        fig, ax = plt.subplots(figsize=(16,8))
+        a = []
+        lims = [[-30,30],[-20,20],[-20,20],[30,150],[30,150],[0,30],[0,30],[0,30],[0,1],[0,20],[0,1],[0,53]]
+        names = ['Elevation','East Wind','North Wind','Live Herbaceous Moisture','Live Woody Moisture','1-Hour Moisture','10-Hour Moisture','100-Hour Moisture','Canopy Cover','Canopy Height','Crown Ratio','Fuel Model']
+        textOffset = [0]
+        #modelInputs = [elevImg,windX,windY,lhmImg,lwmImg,m1hImg,m10hImg,m100hImg,canopyCoverImg,canopyHeightImg,crownRatioImg,modelImg]
+        for i in range(len(modelInputs)-1,-1,-1):
+            img = modelInputs[i].copy()
+            img[-1,-1] = lims[i][0]
+            img[-1,-2] = lims[i][1]
+            oi = OffsetImage(img, zoom = 2.0, cmap='hot_r')
+            box = AnnotationBbox(oi, (-0.5*i,1*i), frameon=True)
+            a.append(ax.add_artist(box))
+            ax.annotate(names[i],xy=(-0.5*i-1.5,1*i-1.6),xycoords='data',textcoords='data',xytext=(-0.5*i-5-(len(names[i])-10)*0.1,1*i-1.525),arrowprops=dict(facecolor='black',shrink=0.05),fontsize=fs)
+        i = -1
+        fireImages[1][fireImages[1] == 255] = 1
+        #fireImages[1][-1,-1] = 2
+        norm = matplotlib.colors.Normalize(vmin=0, vmax=2)
+        oi = OffsetImage(fireImages[1], zoom = 2.0, cmap='hot_r',norm=norm)
+        box = AnnotationBbox(oi, (-0.5*i,1*i), frameon=True)
+        ax.annotate('Initial Burn Map',xy=(-0.5*i-1.5,1*i-1.6),xycoords='data',textcoords='data',xytext=(-0.5*i-5,1*i-1.525),arrowprops=dict(facecolor='black',shrink=0.05),fontsize=fs)
+        a.append(ax.add_artist(box))
+        
+        '''
+        oi = OffsetImage([[0,0],[0,0]], zoom = 2.0, cmap='hot_r')
+        box = AnnotationBbox(oi, (-0.5*i,1*i), frameon=True)
+        ax.annotate('Initial Burn Map',xy=(-0.5*i-1.5,1*i-1.6),xycoords='data',textcoords='data',xytext=(-0.5*i-5,1*i-1.525),arrowprops=dict(facecolor='black',shrink=0.05),fontsize=fs)
+        a.append(ax.add_artist(box))
+        '''
+        
+        
+        
+        i = 6# 6
+        imgX = 3.50
+        ax.annotate('',xy=(imgX,1*i),xycoords='data',textcoords='data',xytext=(imgX-2,1*i),arrowprops=dict(facecolor='black',shrink=0.01,width=50,headwidth=100,headlength=30))
+        ax.annotate('Convolutional\nNeural Network',xy=(imgX-0.9,1*i-0.9),xycoords='data',textcoords='data',xytext=(imgX-2.5,1*i-2.85),fontsize=fs)
+        imgX = 5.5
+        i = 3
+        oi = OffsetImage(networkRaw, zoom = 2.0, cmap='hot_r')
+        box = AnnotationBbox(oi, (imgX,1*i), frameon=True)
+        ax.annotate('Probability of\nFire',xy=(imgX-0.8,1*i-0.9),xycoords='data',textcoords='data',xytext=(imgX-1.1,1*i-2.85),fontsize=fs)
+        a.append(ax.add_artist(box))
+        imgX = 5.5
+        i = 10
+        oi = OffsetImage(1-networkRaw, zoom = 2.0, cmap='hot_r')
+        box = AnnotationBbox(oi, (imgX,1*i), frameon=True)
+        ax.annotate('Probability of\nNot Fire',xy=(imgX-0.8,1*i-0.9),xycoords='data',textcoords='data',xytext=(imgX-1.1,1*i-2.85),fontsize=fs)
+        a.append(ax.add_artist(box))
+        
+        i = 6# 6
+        imgX = 9.5
+        ax.annotate('',xy=(imgX,1*i),xycoords='data',textcoords='data',xytext=(imgX-2,1*i),arrowprops=dict(facecolor='black',shrink=0.01,width=50,headwidth=100,headlength=30))
+        ax.annotate('Post Processing',xy=(imgX-1.1,1*i-1.4),xycoords='data',textcoords='data',xytext=(imgX-2.25,1*i-2.85),fontsize=fs)
+        
+        imgX = 11.5
+        i = 6
+        oi = OffsetImage(networkProcessed, zoom = 2.0, cmap='hot_r')
+        box = AnnotationBbox(oi, (imgX,1*i), frameon=True)
+        ax.annotate('Burn Map\nAfter 6 Hours',xy=(imgX-1.5,1*i-0.9),xycoords='data',textcoords='data',xytext=(imgX-1.15,1*i-2.85),fontsize=fs)
+        a.append(ax.add_artist(box))
+        
+        
+        plt.ylim(-2.6,12.5)
+        plt.xlim(-10,12.5)
+        #plt.ylim(-50,50)
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig('inputsExampleSingleFire.eps')
+        
+        
+        
+        
+        
+        
+        #manyFiresInputFigure(modelInputs)
+        makeFirePerimetersFigure(imgFire)
+
+
+        
     elif case == 6:
         import glob
         outdir = '../rothermelData/'

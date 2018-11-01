@@ -522,7 +522,7 @@ def loadTimeFileCustomHdf(indir):
 if __name__ == "__main__":
     
     satellite = 'aqua'
-    case = 2
+    case = 1
     
     if satellite == 'terra':
         indir="G:/WildfireResearch/data/terra_hourly_activefires/"
@@ -560,16 +560,20 @@ if __name__ == "__main__":
                                         clim=np.linspace(0,9,10),label='AF',
                                         saveFig=False,saveName='noname')
     elif case == 1:
-        lat, lon, data = loadCustomHdf(outdir+'MOD14JH.A2017164.dddd.0062018032.2019.hdf','FireMask')
-        plt.figure(1)
-        fig1 = uc.plotContourWithStates(lat,lon,data,
-                                        clim=np.linspace(0,9,10),label='AF',
-                                        saveFig=False,saveName='noname')
-        lat, lon, data = loadCustomHdf(outdir+'MOD14JH.A2017164.nnnn.0062018032.2019.hdf','FireMask')
+        #lat, lon, data, timestamp = loadCustomHdf(outdir+'MYD14JH.A.2017189.dddd.0062018064.2112.hdf','FireMask')
+        #dateTimeStamp = dt.datetime.fromtimestamp(timestamp)
+        #saveName = dateTimeStamp.strftime('%Y%m%d%H')
+        #plt.figure(1)
+        #fig1 = uc.plotContourWithStates(lat,lon,data,
+        #                                clim=np.linspace(0,9,10),label='AF',
+        #                                saveFig=True,saveName=saveName)
+        lat, lon, data, timestamp = loadCustomHdf(outdir+'MYD14JH.A.2017188.nnnn.0062018064.1721.hdf','FireMask')
+        dateTimeStamp = dt.datetime.fromtimestamp(timestamp)
+        saveName = dateTimeStamp.strftime('%Y%m%d%H')
         plt.figure(2)
         fig1 = uc.plotContourWithStates(lat,lon,data,
                                         clim=np.linspace(0,9,10),label='AF',
-                                        saveFig=False,saveName='noname')
+                                        saveFig=True,saveName=saveName)
     elif case == 2:
         times, outfile = updateTimeFileCustomHdf(outdir,timezone=0)
         
@@ -578,9 +582,9 @@ if __name__ == "__main__":
         day = 4
         hour = 9
         for i in range(0,30):
-            queryDateTime = dt.datetime(year=2017,month=12,day=day,hour=hour,minute=0)+dt.timedelta(hours=8)
+            queryDateTime = dt.datetime(year=2017,month=7,day=day,hour=hour,minute=0)+dt.timedelta(hours=8)
             #files, times = loadTimeFileCustomHdf(outdir)
-            lat, lon, data =  queryTimeCustomHdf(queryDateTime,datadir=outdir,sdsname='FireMask')
+            lat, lon, data =  queryTimeCustomHdf(queryDateTime,datadirs=outdir,sdsname='FireMask')
             plt.figure(1)
             
             if len(str(day)) == 1:

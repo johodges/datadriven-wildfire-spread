@@ -85,7 +85,7 @@ def plotWildfireData(datas,names,
         else:
             clim = clims[i]
             label = ''
-        img = ax.imshow(datas[i],cmap='jet',vmin=clim[0],vmax=clim[-1])#,vmin=0,vmax=1)
+        img = ax.imshow(datas[i],cmap='hot',vmin=clim[0],vmax=clim[-1])#,vmin=0,vmax=1)
         img_cb = plt.colorbar(img,ax=ax,label=label)
 
         img_cb.set_label(label=label,fontsize=fntsize)
@@ -94,7 +94,7 @@ def plotWildfireData(datas,names,
         for ln in ax.lines:
             ln.set_linewidth(lnwidth)
     if saveFig:
-        fig.savefig(saveName)
+        fig.savefig(saveName,dpi=300)
         
     if closeFig:
         plt.clf()
@@ -158,30 +158,49 @@ def plotTimeContour(img,imgBand,contours,namespace):
     fs = 16
     contours = contours.reindex(index=contours.index[::-1])
     fig, ax = plt.subplots(figsize=(12,8))
-    rsplot.show((img,imgBand),with_bounds=True,ax=ax,cmap='gray')
+    elevImg = np.array(img.read(imgBand),dtype=np.float32)
+    #elevImg = elevImg-np.median(elevImg)
+    tmp = img.get_transform()
+    plt.imshow(elevImg,extent=(0,50000,0,50000),cmap='gray')
+    #sm2 = plt.cm.ScalarMappable(cmap='gray', norm=plt.Normalize(vmin=elevImg.min(),vmax=elevImg.max()))
+    cbar1 = plt.colorbar()
+    cbar1.ax.set_ylabel('Elevation (m)',rotation=90,fontsize=fs)
+    cbar1.ax.tick_params(labelsize=fs)
+    #rsplot.show((img,imgBand),with_bounds=False,ax=ax,cmap='gray')
+    
     
     vmin = np.min(contours.time)
-    vmax = np.max(contours.time)
+    vmax = 48 #np.max(contours.time)
     
-    contours.plot(ax=ax, cmap='jet', scheme='time')
+    contours2 = contours.copy()
+    contours2.geometry = contours2.translate(xoff=-1*tmp[0],yoff=-1*tmp[3]+50000,zoff=0.0)
+    #contours2.geometry = contours2.scale(xfact=2,yfact=2,zfact=1.0)
     
-    sm = plt.cm.ScalarMappable(cmap='jet_r', norm=plt.Normalize(vmin=vmin,vmax=vmax))
+    contours2.plot(ax=ax, cmap='hot', scheme='time')
+    
+    sm = plt.cm.ScalarMappable(cmap='hot_r', norm=plt.Normalize(vmin=vmin,vmax=vmax))
     sm._A = []
     cbar = fig.colorbar(sm)
-    cbar.ax.set_ylabel('Time since Ignition (Hours)',rotation=270,fontsize=fs)
+    cbar.ax.set_ylabel('Time Since Ignition (Hours)',rotation=90,fontsize=fs)
     cbar.ax.get_yaxis().labelpad = 20
+    cbar.set_ticks([0,12,24,36,48])
     cbar.ax.tick_params(labelsize=fs)
-    cbar.ax.invert_yaxis()
-    
+    #cbar.ax.invert_yaxis()
+    #plt.axis('off')
+    plt.xlabel('km',fontsize=fs)
+    plt.ylabel('km',fontsize=fs)
+    ax.set_xticklabels([0,10,20,30,40,50])
+    ax.set_yticklabels([50,40,30,20,10,0])
     plt.tick_params(labelsize=fs)
-    ax.ticklabel_format(axis='both', style='sci', scilimits=(-2,2))
+    #ax.ticklabel_format(axis='both', style='sci', scilimits=(-2,2))
+    
     plt.tight_layout()
     
-    plt.xlabel('NAD83 EW %s'%(ax.xaxis.offsetText.get_text()),fontsize=fs)
-    plt.ylabel('NAD83 NS %s'%(ax.yaxis.offsetText.get_text()),fontsize=fs)
-    ax.yaxis.offsetText.set_visible(False)
-    ax.xaxis.offsetText.set_visible(False)
-    plt.savefig(namespace)
+    #plt.xlabel('NAD83 EW %s'%(ax.xaxis.offsetText.get_text()),fontsize=fs)
+    #plt.ylabel('NAD83 NS %s'%(ax.yaxis.offsetText.get_text()),fontsize=fs)
+    #ax.yaxis.offsetText.set_visible(False)
+    #ax.xaxis.offsetText.set_visible(False)
+    plt.savefig(namespace+'.pdf',dpi=300)
     return fig
 
 def getRasterFromPolygon(data,tF,ind,value,sz):
@@ -208,7 +227,7 @@ def remapFuelImg(img):
     imgNew = np.reshape(imgRsNew,(sz[0],sz[1]))
     return imgNew
 
-def visualizeFarsiteResult(namespace,lcpNamespace,perimeterOnly=True):
+def visualizeFarsiteResult(namespace,lcpNamespace,perimeterOnly=False):
 
     moistures, weathers, winds = parseFarsiteInput(namespace+'.input')
     windSpeed = np.median(winds[:,3])
@@ -221,7 +240,7 @@ def visualizeFarsiteResult(namespace,lcpNamespace,perimeterOnly=True):
     dataOut = loadFarsiteOutput(namespace)
     lcpData = loadFarsiteLcp(inDir+lcpNamespace)
     
-    fig = plotTimeContour(lcpData,1,dataOut,namespace+'_p.png')
+    fig = plotTimeContour(lcpData,1,dataOut,namespace+'_p.pdf')
     plt.close()
     if not perimeterOnly:
         elevImg = np.array(lcpData.read(1),dtype=np.float32)
@@ -275,8 +294,12 @@ def visualizeFarsiteResult(namespace,lcpNamespace,perimeterOnly=True):
                  'Network','Truth']
         
         
+        saveNames = ['theFire','elev','windX','windY','lhm','lwm','m1h','m10h','m100h','cc','ch','cbh','cd','fm']
+        
         (t.max()-t.min())/tOff
-        for i in range(0,t.max(),tOff):
+        fs=48
+        #for i in range(0,t.max(),tOff):
+        for i in range(4*tOff,5*tOff,tOff):
             """ This is how command line farsite outputs
             """
             try:
@@ -287,8 +310,35 @@ def visualizeFarsiteResult(namespace,lcpNamespace,perimeterOnly=True):
                 
                 currentFire = downsampleImage(currentFire,interval)
                 nextFire = downsampleImage(nextFire,interval)
-                data = [currentFire,elevImg,windXImg,windYImg,lhmImg,lwmImg,m1hImg,m10hImg,m100hImg,canopyImg,canopyHeightImg,canopyBaseHeightImg,canopyDensityImg,fuelImg,nextFire,nextFire]
-                plotWildfireData(data,names,clims=clims,saveFig=True,saveName=namespace+'_'+str(i)+'_'+str(i+tOff)+'_summary.png')
+                
+                theFire = nextFire.copy()
+                theFire[theFire == 0] = 0
+                theFire[theFire > 0] = 12
+                theFire[currentFire>0] = 6
+                
+                data = [theFire,elevImg,windXImg,windYImg,lhmImg,lwmImg,m1hImg,m10hImg,m100hImg,canopyImg,canopyHeightImg,canopyBaseHeightImg,canopyDensityImg,fuelImg]
+                clim = [-6,6]
+                
+                theFire[1,2] = 6
+                theFire[5,2] = 12
+                
+                fig,ax = plt.subplots(figsize=(12,12))
+                plt.imshow(fuelImg,cmap='hot_r',vmin=0,vmax=50)
+                plt.xlabel('km',fontsize=fs)
+                plt.ylabel('km',fontsize=fs)
+                plt.tick_params(labelsize=fs)
+                divider = make_axes_locatable(ax)
+                cax = divider.append_axes("right",size="5%", pad=0.05)
+                cbar = plt.colorbar(cax=cax)
+                cbar.ax.set_ylabel('Fuel Model',rotation=90,fontsize=48)
+                cbar.ax.get_yaxis().labelpad = 20
+                cbar.ax.tick_params(labelsize=fs)
+                plt.tick_params(labelsize=fs)
+                
+                #ax.annotate('Initial Burn Map\nBurn Map After 6 hours',xy=(5,6.0),xycoords='data',textcoords='data',xytext=(5,6.0),fontsize=fs)
+                plt.tight_layout()
+                plt.savefig('wfsm_farsiteExample_14.eps')
+                #plotWildfireData(data,names,clims=clims,saveFig=True,saveName=namespace+'_'+str(i)+'_'+str(i+tOff)+'_summary.pdf')
             except:
                 pass
 
@@ -296,19 +346,25 @@ if __name__ == "__main__":
     
     commandFile = 'commonDir/farsite/example/Panther/runPanther.txt'
     inDir = 'E:/projects/wildfire-research/farsite/data/'
+    outDir = 'E:/projects/wildfire-research/farsite/results/'
     
-    files = glob.glob(inDir+"*run_*_Perimeters.shp")
+    files = glob.glob(inDir+"run_*_*_*_*_*_*_Perimeters.shp")
     print("Total files: %.0f"%(len(files)))
-    for i in range(0,len(files)):#file in files:
+    #assert False, "Stopped"
+    for i in range(45,46):#len(files)):#file in files:
+        #i = -1
         file = files[i]
         #file = inDir[:-1]+'\\'+'run_0_8_n116-9499_38-9950_25000_out_Perimeters.shp'
         namespace = file.split('\\')[1].split('_out_Perimeters.shp')[0]
+        outNamespace = outDir+namespace+'_p.png'
         namespace = inDir+namespace
-        try:
+        try: #if True:
             lcpNamespace = namespace.split('_')[3]+'_'+namespace.split('_')[4]+'_'+namespace.split('_')[5]+'.LCP'
             
-            if len(glob.glob(namespace+'_p.png')) == 0:
+            if len(glob.glob(outNamespace)) == 0:
+                assert False, "Stopped"
                 visualizeFarsiteResult(namespace,lcpNamespace)
+                #assert False, "stopped"
         except:
             print(namespace)
     #lcpNamespace = namespace+'.LCP'

@@ -535,8 +535,8 @@ if __name__ == '__main__':
     '''
     
     # User inputs
-    queryDateTime = dt.datetime(year=2016,month=6,day=27,hour=5,minute=53)
-    case = 5
+    queryDateTime = dt.datetime(year=2017,month=7,day=9,hour=6,minute=00)
+    case = 3
     
     if case == 0:
         tiles = None
@@ -596,8 +596,8 @@ if __name__ == '__main__':
         tiles = ['h08v04','h08v05','h09v04']
         states = 'California'
         # Find activefires at queryDateTime
-        queryDateTime = dt.datetime(year=2016,month=1,day=1,hour=12,minute=0)
-        outdir = 'C:/Users/JHodges/Documents/wildfire-research/output/AF_images/'
+        #queryDateTime = dt.datetime(year=2016,month=1,day=1,hour=12,minute=0)
+        outdir = 'E:\\projects\\forensics\\parkfield\\'
         for i in range(0,365):
             af_name = outdir+'AF2_'+queryDateTime.isoformat()[0:13]+'.png'
         

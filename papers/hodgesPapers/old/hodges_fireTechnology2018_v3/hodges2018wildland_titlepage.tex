@@ -1,0 +1,91 @@
+%%%%%%%%%%%%%%%%%%%%%%% file template.tex %%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% This is a general template file for the LaTeX package SVJour3
+% for Springer journals.          Springer Heidelberg 2010/09/16
+%
+% Copy it to a new file with a new name and use it as the basis
+% for your article. Delete % signs as needed.
+%
+% This template includes a few options for different layouts and
+% content for various journals. Please consult a previous issue of
+% your journal as needed.
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+\RequirePackage{fix-cm}
+%
+%\documentclass{svjour3}                     % onecolumn (standard format)
+\documentclass[smallcondensed]{svjour3}     % onecolumn (ditto)
+%\documentclass[smallextended]{svjour3}       % onecolumn (second format)
+%\documentclass[twocolumn]{svjour3}          % twocolumn
+\journalname{Fire Technology}
+%\documentclass[12pt]{article}
+%\setlength\topmargin{0pt}
+%\addtolength\topmargin{-\headheight}
+%\addtolength\topmargin{-\headsep}
+%\setlength\oddsidemargin{0pt}
+%\setlength\textwidth{\paperwidth}
+%\addtolength\textwidth{-2in}
+%\setlength\textheight{\paperheight}
+%\addtolength\textheight{-2in}
+%\linespread{1.25}
+\usepackage{layout}
+%
+\smartqed  % flush right qed marks, e.g. at end of proof
+%
+\usepackage{graphicx}
+%\usepackage{subcaption}
+%\usepackage{placeins}
+\newcommand{\etal}{\textit{et al}. }
+
+\graphicspath{{figs/}}
+
+\begin{document}
+
+\title{Wildland Fire Spread Modeling Using Convolutional Neural Networks
+}
+%\author{Removed for Peer Review}
+\author{Jonathan L. Hodges         \and
+        Brian Y. Lattimer
+}
+%\institute{Removed for Peer Review \at }
+\institute{J. L. Hodges \at
+              Jensen Hughes\\
+              2020 Kraft Drive, Suite 3020\\
+              Blacksburg, VA 24060 USA \\
+              Tel.: +1 540-808-2800 x10611\\
+              \email{jhodges@jensenhughes.com}
+}
+
+\date{Received: date / Accepted: date}
+% The correct dates will be entered by the editor
+
+
+\maketitle
+
+\begin{abstract}
+This paper presents a novel predictive analytics approach to estimating
+the spread of a wildland fire using a convolutional neural network
+(CNN). Simulated burn maps for use in this process were
+generated at six hour intervals using the phenomological fire spread model
+of Rothermel with 10,000 different combinations of input parameters.
+The robustness of the approach is tested using 1,000 simulations not
+included when training the CNN. Overall the predicted burn maps 
+from the CNN-based approach agreed with simulation results,
+with mean precision, sensitivity, and F-measure of 0.97, 0.92, and 0.93,
+respectively. Noise in the input parameters was found to not significantly
+impact the CNN-based predictions. The computational cost of the method
+was found to be comparable to a phenomological model in homogenous spatial
+conditions, and significantly better for heterogenous spatial conditions.
+Although trained on predictions six hours apart, the
+CNN-based approach is shown to be capable of predicting burn maps
+further in the future by recursively using previous predictions as inputs to
+the model. When the initial fire was small, the model tended to under-predict
+fire spread; however, predictions generally improved as the fire grew.
+
+\keywords{Wildland Fire \and  Machine Learning \and Neural Network \and Fire Spread \and Convolutional Neural Network \and CNN}
+% \PACS{PACS code1 \and PACS code2 \and more}
+% \subclass{MSC code1 \and MSC code2 \and more}
+\end{abstract}
+
+\end{document}

@@ -19,177 +19,150 @@ from rasterio import features
 import rasterio.plot as rsplot
 import parse_asos_file as paf
 
-def parseFarsiteInput(filename):
-    with open(filename,'r') as f:
-        lines = f.readlines()
-    moistures = []
-    weathers = []
-    winds = []
-    for line in lines:
-        if 'FUEL_MOISTURES_DATA' in line:
-            switch = 'moisture'
-        elif 'WEATHER_DATA' in line:
-            switch = 'weather'
-        elif 'WIND_DATA' in line:
-            switch = 'wind'
-        lineSplit = line.split(' ')
-        if lineSplit[0].isdigit():
-            lineArray = np.array([float(x) for x in lineSplit])
-            if switch == 'moisture':
-                moistures.append(lineArray)
-            elif switch == 'weather':
-                weathers.append(lineArray)
-            elif switch == 'wind':
-                winds.append(lineArray)
-    moistures = np.array(moistures)
-    weathers = np.array(weathers)
-    winds = np.array(winds)
-    return moistures, weathers, winds
+def findBestThreshold(predictionImgs,truthImgs):
+    thresh = -0.01
+    threshes = []
+    fMeasures = []
+    confusionMatrixes = []
+    while thresh < 1.0:
+        thresh = thresh + 0.01
+        confusionMatrix = []
+        for i in range(0,len(truthImgs)):
+            pImg = predictionImgs[i].copy()
+            tImg = truthImgs[i].copy()
+            confusionMatrix.append(findConfusionMatrix(pImg,tImg,thresh))
+        confusionMatrix = np.array(confusionMatrix)
+        threshes.append(thresh)
+        fMeasures.append(np.mean(confusionMatrix[:,-1]))
+        confusionMatrixes.append(confusionMatrix)
+    bestThresh = threshes[np.argmax(fMeasures)]
+    bestConfusionMatrix = np.mean(confusionMatrixes[np.argmax(fMeasures)],axis=0)
+    return bestThresh, bestConfusionMatrix, threshes, fMeasures
+    
+def postProcessFirePerimiter(pImg,thresh):
+    pImg[pImg < thresh] = 0.0
+    corners = [pImg[-1,-1].copy(),pImg[0,0].copy(),pImg[0,-1].copy(),pImg[-1,0].copy()]
+    centers = pImg[24:26,24:26].copy()
+    pImg = scsi.medfilt2d(pImg)
+    (pImg[-1,-1],pImg[0,0],pImg[0,-1],pImg[-1,0]) = corners
+    pImg[24:26,24:26] = centers
+    pImg[pImg>thresh] = 1.0
+    return pImg
+    
+def findConfusionMatrix(pImg,tImg,thresh):
+    pImg = postProcessFirePerimiter(pImg,thresh)
 
-def lineStringToPolygon(data):
-    for i in range(0,data.shape[0]):
-        data['geometry'][i] = Polygon(list(data['geometry'][i].coords))
-    return data
+    TN = float(len(np.where(np.array(pImg.flatten() == 0) & np.array(tImg.flatten() == 0))[0]))
+    FN = float(len(np.where(np.array(pImg.flatten() == 0) & np.array(tImg.flatten() == 1))[0]))
+    FP = float(len(np.where(np.array(pImg.flatten() == 1) & np.array(tImg.flatten() == 0))[0]))
+    TP = float(len(np.where(np.array(pImg.flatten() == 1) & np.array(tImg.flatten() == 1))[0]))
+    
+    try:
+        accuracy = round((TP+TN)/(TP+TN+FP+FN),2)
+    except ZeroDivisionError:
+        accuracy = round((TP+TN)/(TP+TN+FP+FN+1),2)
+    try:
+        recall = round((TP)/(TP+FN),2)
+    except ZeroDivisionError:
+        recall = round((TP)/(TP+FN+1),2)
+    try:
+        precision = round((TP)/(TP+FP),2)
+    except ZeroDivisionError:
+        precision = round((TP)/(TP+FP+1),2)
+    try:
+        fMeasure = round((2*recall*precision)/(recall+precision),2)
+    except ZeroDivisionError:
+        fMeasure = round((2*recall*precision)/(recall+precision+1),2)
+    
+    confusionMatrix = [TN,FN,FP,TP,accuracy,recall,precision,fMeasure]
+    return confusionMatrix
 
-def loadFarsiteOutput(inDir,namespace,commandFarsite=True):
-    imgs, names, headers = qlf.readLcpFile(inDir+namespace+'.LCP')
-    header = qlf.parseLcpHeader(headers)
-    dataOut = gpd.GeoDataFrame.from_file(inDir+namespace+'_out_Perimeters.shp')
-    if commandFarsite:
-        dataOut = lineStringToPolygon(dataOut)
-    testDate = [datetime.datetime(year=2016, month=int(x), day=int(y), hour=int(z)).timestamp() for x,y,z in zip(dataOut['Month'].values,dataOut['Day'].values,dataOut['Hour'].values/100)]
-    testDate = np.array(testDate,dtype=np.float32)
-    testDate = np.array((testDate-testDate[0])/3600,dtype=np.int16) #/3600
-    dataOut['time'] = testDate
-    
-    lcpData = rasterio.open(inDir+namespace+'.LCP')
-    return dataOut, lcpData
-
-def downsampleImage(img,interval):
-    newImg = img[::interval,::interval].copy()
-    return newImg
-
-def plotTimeContour(img,imgBand,contours):
-    contours = contours.reindex(index=contours.index[::-1])
-    fig, ax = plt.subplots(figsize=(12,8))
-    rsplot.show((img,imgBand),with_bounds=True,ax=ax,cmap='gray')
-    
-    vmin = np.min(contours.time)
-    vmax = np.max(contours.time)
-    
-    contours.plot(ax=ax, cmap='jet', scheme='time')
-    
-    sm = plt.cm.ScalarMappable(cmap='jet_r', norm=plt.Normalize(vmin=vmin,vmax=vmax))
-    sm._A = []
-    cbar = fig.colorbar(sm)
-    cbar.ax.set_ylabel('Time since Ignition (Hours)',rotation=270,fontsize=fs)
-    cbar.ax.get_yaxis().labelpad = 20
-    cbar.ax.tick_params(labelsize=fs)
-    cbar.ax.invert_yaxis()
-    
+def plotThresholdFMeasure(threshes,fMeasures):
+    plt.figure(figsize=(8,8))
+    plt.plot(threshes,fMeasures,'-k',linewidth=3)
+    fs = 32
+    plt.xlabel('Threshold',fontsize=fs)
+    plt.ylabel('F-Measure',fontsize=fs)
+    plt.ylim(0.0,1.0)
+    plt.xlim(0.0,1.0)
     plt.tick_params(labelsize=fs)
-    ax.ticklabel_format(axis='both', style='sci', scilimits=(-2,2))
-    plt.tight_layout()
-    
-    plt.xlabel('NAD83 EW %s'%(ax.xaxis.offsetText.get_text()),fontsize=fs)
-    plt.ylabel('NAD83 NS %s'%(ax.yaxis.offsetText.get_text()),fontsize=fs)
-    ax.yaxis.offsetText.set_visible(False)
-    ax.xaxis.offsetText.set_visible(False)
-    return fig
+    plt.xticks([0.0,0.2,0.4,0.6,0.8,1.0])
+    plt.yticks([0.0,0.2,0.4,0.6,0.8,1.0])
+    plt.grid()
+    plt.savefig('optimalThreshold.png',dpi=300)
 
-def getRasterFromPolygon(data,tF,ind,value,sz):
-    outArr = np.zeros(sz)
-    shapes = ((geom,value) for geom, value in zip(data.iloc[:ind,:].geometry, np.zeros((data.iloc[:ind,:].shape[0],),dtype=np.int16)+value)) #dataOut.iloc[:i+1,:].time))
-    raster = np.array(features.rasterize(shapes=shapes, fill=1, out=outArr, transform=tF)).copy()
-    return raster
-
-def parseMoistures(moistures):
-    fm, m1h, m10h, m100h, lhm, lwm = np.median(moistures,axis=0)
-    return m1h, m10h, m100h, lhm, lwm
-
-def makeConstImage(sz,value):
-    img = np.zeros(sz)+value
-    return img
 
 if __name__ == "__main__":
     
-    commandFile = 'commonDir/farsite/example/Panther/runPanther.txt'
-    inDir = 'E:/projects/wildfire-research/farsite/data/'
-    #inDir = 'E:/projects/wildfire-research/farsiteData/'
-    #namespace = 'n117-9343_36-5782_3000'
-    namespace = 'n114-0177_38-3883_25000'
-    #lcpFile = inDir+namespace+'.LCP'
-    #elevation = getLcpElevation(lcpFile)
-    #ignitionShape = makeCenterIgnition(lcpFile)    
+    bestThresh, bestConfusionMatrix, threshes, fMeasures = findBestThreshold(predictionImgs,truthImgs)
+    plotThresholdFMeasure(threshes,fMeasures)
     
-    moistures, weathers, winds = parseFarsiteInput(inDir+namespace+'.input')
+    print("Best Threshold: %.2f"%(bestThresh))
+    print("Best F-Measure: %.2f"%(bestConfusionMatrix[-1]))
     
-    windSpeed = np.median(winds[:,3])
-    windDir = np.median(winds[:,4])
-    windX,windY = paf.convertVector(windSpeed,windDir)
-    m1h, m10h, m100h, lhm, lwm = parseMoistures(moistures)
+    '''
     
-    
-    
-    #fileName = inDir+namespace
-    #params = generateFarsiteInput(fileName,elevation)
-    #runFarsite(commandFile)
-    
-    
-    
-    #p = subprocess.Popen([dockerStart,dockerCmd],stdout=subprocess.PIPE)
-    #print(p.communicate())
-    
-    fs = 16
-    interval = int(np.ceil(1000/30))
-    dataOut, lcpData = loadFarsiteOutput(inDir,namespace)
-    
-    fig = plotTimeContour(lcpData,1,dataOut)
-    
-    elevImg = lcpData.read(1)
-    fuelImg = lcpData.read(4)
-    canopyImg = lcpData.read(5)
-    canopyHeightImg = lcpData.read(6)
-    canopyDensityImg = lcpData.read(7)
-    sz = elevImg.shape
-    
-    elevImg = downsampleImage(elevImg,interval)
-    fuelImg = downsampleImage(fuelImg,interval)
-    canopyImg = downsampleImage(canopyImg,interval)
-    smallSz = elevImg.shape
-    
-    windXImg = makeConstImage(smallSz,windX)
-    windYImg = makeConstImage(smallSz,windY)
-    
-    t = dataOut['time']
-    tOff = 6
-    
-    tF = lcpData.transform
-    
-    for i in range(1,dataOut.shape[0]-1,601):
-        endInd = np.argwhere(t-t[i]>=tOff)[0][0]
-        """ This is how command line farsite outputs
-        """
-        currentFire = getRasterFromPolygon(dataOut,tF,i,1,sz)
-        nextFire = getRasterFromPolygon(dataOut,tF,endInd,1,sz)
-        
-        currentFire = downsampleImage(currentFire,interval)
-        nextFire = downsampleImage(nextFire,interval)
-        
-        fig = plt.figure(figsize=(12,12))
-        plt.subplot(3,4,1)
-        plt.imshow(currentFire,cmap='jet')
-        plt.subplot(3,4,2)
-        plt.imshow(elevImg,cmap='jet')
-        plt.subplot(3,4,3)
-        plt.imshow(windXImg,cmap='jet')
-        plt.subplot(3,4,4)
-        plt.imshow(windYImg,cmap='jet')
-        plt.subplot(3,4,6)
-        plt.imshow(canopyImg,cmap='jet')
-        plt.subplot(3,4,7)
-        plt.imshow(fuelImg,cmap='jet')
+    thresh = -0.01
+    threshes = []
+    fMeasures = []
+    confusionMatrixes = []
+    while thresh < 1.0:
+        thresh = thresh + 0.01
+        confusionMatrix = []
+        errors = []
+        if generatePlots:
+            for toPlot in range(0,99):
+                pImg = predictionImgs[toPlot].copy()
+                tImg = truthImgs[toPlot].copy()
+                pImg[pImg < thresh] = 0.0
+                corners = [pImg[-1,-1].copy(),pImg[0,0].copy(),pImg[0,-1].copy(),pImg[-1,0].copy()]
+                centers = pImg[24:26,24:26].copy()
+                pImg = scsi.medfilt2d(pImg)
+                (pImg[-1,-1],pImg[0,0],pImg[0,-1],pImg[-1,0]) = corners
+                pImg[24:26,24:26] = centers
+                
+                pImg[pImg>thresh] = 1.0
 
-        plt.subplot(3,4,9)
-        plt.imshow(nextFire,cmap='jet')
-        
+                TN = float(len(np.where(np.array(pImg.flatten() == 0) & np.array(tImg.flatten() == 0))[0]))
+                FN = float(len(np.where(np.array(pImg.flatten() == 0) & np.array(tImg.flatten() == 1))[0]))
+                FP = float(len(np.where(np.array(pImg.flatten() == 1) & np.array(tImg.flatten() == 0))[0]))
+                TP = float(len(np.where(np.array(pImg.flatten() == 1) & np.array(tImg.flatten() == 1))[0]))
+                
+                try:
+                    accuracy = round((TP+TN)/(TP+TN+FP+FN),2)
+                except ZeroDivisionError:
+                    accuracy = round((TP+TN)/(TP+TN+FP+FN+1),2)
+                try:
+                    recall = round((TP)/(TP+FN),2)
+                except ZeroDivisionError:
+                    recall = round((TP)/(TP+FN+1),2)
+                try:
+                    precision = round((TP)/(TP+FP),2)
+                except ZeroDivisionError:
+                    precision = round((TP)/(TP+FP+1),2)
+                try:
+                    fMeasure = round((2*recall*precision)/(recall+precision),2)
+                except ZeroDivisionError:
+                    fMeasure = round((2*recall*precision)/(recall+precision+1),2)
+                
+                confusionMatrix.append([TN,FN,FP,TP,accuracy,recall,precision,fMeasure])
+
+            confusionMatrix = np.array(confusionMatrix)
+            print(thresh,np.mean(confusionMatrix[:,-1]))
+            threshes.append(thresh)
+            fMeasures.append(np.mean(confusionMatrix[:,-1]))
+            confusionMatrixes.append(confusionMatrix)
+    plt.figure(figsize=(8,8))
+    plt.plot(threshes,fMeasures,'-k',linewidth=3)
+    fs = 32
+    plt.xlabel('Threshold',fontsize=fs)
+    plt.ylabel('F-Measure',fontsize=fs)
+    plt.ylim(0.0,1.0)
+    plt.xlim(0.0,1.0)
+    plt.tick_params(labelsize=fs)
+    plt.xticks([0.0,0.2,0.4,0.6,0.8,1.0])
+    plt.yticks([0.0,0.2,0.4,0.6,0.8,1.0])
+    plt.grid()
+    
+    print(threshes[np.argmax(fMeasures)],np.mean(confusionMatrixes[np.argmax(fMeasures)],axis=0))
+    '''

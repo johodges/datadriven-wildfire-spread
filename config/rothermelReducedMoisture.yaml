@@ -1,0 +1,16 @@
+name: '../results/rothermelReducedMoisture'
+dataRawFile: '../rothermelData/dataBehaveMoist3000'
+dataRawFileOld: '../networkData/20180213/dataCluster.raw'
+svdInputs: False
+generatePlots: False
+fakeRandom: True
+modelDir: "../models/rothermelReducedMoisture"
+modelFnc: cnnModel_e56
+testNumber: 100
+zeroChannels:
+  channels: [False,False,False,False,False,False,False,False,False,False,False,False,False,False]
+dropChannels:
+  channels: [True,True,True,True,True,True,True,True,True,True,True,False,False,True]
+combineChannels:
+  channels: [True,True,True,True,False,False,False,False,False,True,True]
+  combineType: 'max'
