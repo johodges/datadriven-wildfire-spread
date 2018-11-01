@@ -84,7 +84,7 @@ if __name__ == "__main__":
     #modelDir = "../models/rothermelFull_cnnModel_3"
     modelFnc = cnnModel3
     batchSize = 100
-    epochs = 10001
+    epochs = 200001
     bestThresh = 0.41 # Training Data
     index = 0
     ns = 'farsite_results_redo'
