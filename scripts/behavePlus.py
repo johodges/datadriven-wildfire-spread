@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw
 from scipy.ndimage.interpolation import zoom
 import pandas as pd
 import util_common as uc
+import os
 
 class FuelModel(object):
     ''' This class contains a fuel model for wildfire spread.
@@ -1636,7 +1637,7 @@ def manyFiresInputFigure(modelInputs):
     #plt.ylim(-50,50)
     plt.axis('off')
     plt.tight_layout()
-    plt.savefig('inputsExampleManyFires.png',dpi=300)
+    plt.savefig('..%soutputs%sinputsExampleManyFires.png'%(os.sep, os.sep),dpi=300)
 
 def makeFirePerimetersFigure(imgFire):
     import skimage.transform as sktf
@@ -1667,7 +1668,7 @@ def makeFirePerimetersFigure(imgFire):
     #c.ax.set_label(fontsize=fs)
     plt.tight_layout()
     
-    plt.savefig('exampleFirePerimiter.eps')
+    plt.savefig('..%soutputs%sexampleFirePerimiter.eps'%(os.sep, os.sep))
 
 if __name__ == "__main__":
     ''' case0: Generate 1 set of random inputs and visualize the results.
@@ -1852,8 +1853,25 @@ if __name__ == "__main__":
         #uc.dumpPickle([datasIn,datasOut],outdir+'dataBehaveMoist'+str(len(datasOut))+'_'+str(k)+'.pkl')
         imgFire = visualizeInputValues(directions,rosVectors,params,resX=resX,resY=resY)
         
-        from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+
+
         
+    elif case == 6:
+        import glob
+        outdir = '../rothermelData/'
+        dataFile = outdir+'dataBehaveMoist3000'
+        files = glob.glob(dataFile+'*.pkl')
+        ns = outdir+'behaveMoistData'
+        allIn = []
+        allOut = []
+        for i in range(0,len(files)):
+            [inData,outData] = uc.readPickle(files[i])
+            allIn.extend(inData)
+            allOut.extend(outData)
+        datas = (inData,outData)
+    
+    elif case == 7:
+        from matplotlib.offsetbox import OffsetImage, AnnotationBbox
         
         networkRaw = np.loadtxt('exampleNetworkRaw0.csv',delimiter=',')
         networkProcessed = np.loadtxt('exampleNetworkProcessed0.csv',delimiter=',')
@@ -1927,69 +1945,7 @@ if __name__ == "__main__":
         #plt.ylim(-50,50)
         plt.axis('off')
         plt.tight_layout()
-        plt.savefig('inputsExampleSingleFire.eps')
+        plt.savefig('..%soutputs%sinputsExampleSingleFire.eps'%(os.sep, os.sep))
         
-        
-        
-        
-        
-        
-        #manyFiresInputFigure(modelInputs)
         makeFirePerimetersFigure(imgFire)
-
-
-        
-    elif case == 6:
-        import glob
-        outdir = '../rothermelData/'
-        dataFile = outdir+'dataBehaveMoist3000'
-        files = glob.glob(dataFile+'*.pkl')
-        ns = outdir+'behaveMoistData'
-        allIn = []
-        allOut = []
-        for i in range(0,len(files)):
-            [inData,outData] = uc.readPickle(files[i])
-            allIn.extend(inData)
-            allOut.extend(outData)
-        datas = (inData,outData)
-    
-    #weightedMoistureDead, weightedMoistureLive = getWeightedMoistures(fuelModel,intermediates)
-    #weightedSilicaDead, weightedSilicaLive = getWeightedSilicas(fuelModel,intermediates)
-    #weightedFuelLoadDead, weightedFuelLoadLive = getWeightedFuelLoads(fuelModel,intermediates)
-    #weightedHeatDead, weightedHeatLive = getWeightedHeats(fuelModel,intermediates)
-    
-    #plt.plot(directions,rosVectors)
-    #plt.ylim([0,40])
-    #plt.xlim([0,400])
-
-
-    #truthDir = np.linspace(0,360,13)    
-    # Wind 15 at 0 deg FM1
-    # Slope 0.5 at 0 FM1
-    #truthR = [4.5,5.1,7.9,19.2,46.9,72.7,82.5,72.7,46.9,19.2,7.9,5.1,4.5]
-    
-    # Wind 25 at 30 deg FM1
-    # Slope 0.25 at 0 FM1
-    #truthR = [5.9,5.3,6.2,10.1,28.8,76.4,117.8,131.8,113.4,69.3,24.2,9.2,5.9]
-    
-    # Wind 25 at 30 deg FM4
-    # Slope 0.25 at 0 FM4
-    #truthR = [9.3,8.3,9.6,15.7,45.3,121.1,187.1,209.5,180.3,110.2,38.3,14.3,9.3]
-    
-    # Wind 25 at 30 deg FM4
-    # Slope 0.50 at 270 FM4
-    #truthR = [8.4,8.6,11.5,23.6,69.8,133.6,172.1,169.3,126.2,61.5,20.8,10.9,8.4]
-    
-    # Wind 25 at 30 deg GS1
-    # Slope 0.50 at 270 GS1
-    #truthR = [1.9,1.9,2.6,5.2,15.5,30.0,39.0,38.5,28.9,14.3,4.8,2.5,1.9]
-    
-    #plt.plot(truthDir,truthR)
-    
-    """
-    
-    
-
-    print(heatSink,heatFlux)
-    """
     

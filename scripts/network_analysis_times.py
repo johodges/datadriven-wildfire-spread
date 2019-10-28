@@ -38,7 +38,10 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import scipy.signal as scsi
 import skimage
-from networkDesign3 import cnnModel3, cnnModel_e64a128d, cnnModel_e56a28d, cnnModel_unitTest1, cnnModel_e56
+from networkDesign import cnnModel3
+from skimage.segmentation import chan_vese
+from skimage import img_as_float
+import os
 
 class tfTrainedVars(object):
     
@@ -1421,7 +1424,22 @@ def plotThresholdFMeasure(threshes,fMeasures):
 
 
 
-
+def chanVeseFunctional(pImg, tImg):
+    pimg2 = img_as_float(pImg*255)
+    timg2 = img_as_float(tImg*255)
+    cv = chan_vese(pimg2, mu=0.25, lambda1=1, lambda2=1, tol=1e-3, max_iter=200, dt=0.5, init_level_set="checkerboard", extended_output=True)
+    
+    hv = np.zeros_like(cv[0],dtype=np.float32)+1
+    hv[cv[1]>0] = 0
+    
+    C1 = np.sum(hv[pImg == 1]*timg2[pImg == 1])/float(timg2[pImg == 1].shape[0])
+    C0 = np.sum((1-hv[pImg == 0])*timg2[pImg == 0])/float(timg2[pImg == 0].shape[0])
+    
+    Cmin = min([C0,C1])
+    Cmax = max([C0,C1])
+    
+    cvff = np.sum(hv*(timg2-Cmax)**2+(1-hv)*(timg2-Cmin)**2)/(2500)
+    return cvff
 
 if __name__ == "__main__":
     args = sys.argv
@@ -1438,6 +1456,7 @@ if __name__ == "__main__":
     fakeRandom = params['fakeRandom']
     modelFnc = locals()[params['modelFnc']]
     model_dir = params['modelDir']
+    model_dir = "../models/rothermelFull_cnnModel_3_bk"
     test_number = params['testNumber']
     
     zeroChannels = params['zeroChannels']
@@ -1496,7 +1515,7 @@ if __name__ == "__main__":
     if test:
         fs = 58
         lw = 6
-        num = 4
+        num = 0
         toPlot = True
         if num == 0: initialTime = 2997
         if num == 1: initialTime = 2994
@@ -1538,12 +1557,13 @@ if __name__ == "__main__":
             ax.annotate('Simulation',xy=(1,4),xycoords='data',textcoords='data',xytext=(1,4),fontsize=fs)
             
             plt.tight_layout()
-            plt.savefig('timeAnalysis_simulation%.0f.eps'%(num))
-            plt.savefig('Fig9a%.0f.eps'%(num+1))
+            plt.savefig('..%soutputs%stimeAnalysis_simulation%.0f.eps'%(os.sep, os.sep, num))
+            plt.savefig('..%soutputs%sFig9a%.0f.eps'%(os.sep, os.sep, num+1))
         
         netImgs = [simImg.copy()]
         errorImgs = []
         confusionMatrix = []
+        cvsses = []
         
         t1 = uc.tic()
         evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(singleEval,singleEval_labels,modelFnc,model_dir=model_dir)
@@ -1563,8 +1583,11 @@ if __name__ == "__main__":
         netImgs.append(pImg2)
         singleEval[0,0:2500] = np.reshape(pImg,(2500,))
         singleEval_labels = np.reshape(eval_labels_exp[initialTime+1,:],(1,5000))
-
         
+        pImg2 = np.array(pImg2,dtype=np.uint8)
+        tImg2 = np.array(truthImg,dtype=np.uint8)
+        cvss = chanVeseFunctional(pImg2, tImg2)
+        cvsses.append(cvss)
         
         evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(singleEval,singleEval_labels,modelFnc,model_dir=model_dir)
         prediction = labels2probs(prediction_exp,fireThresh=1.0)
@@ -1584,6 +1607,10 @@ if __name__ == "__main__":
         singleEval[0,0:2500] = np.reshape(pImg,(2500,))
         singleEval_labels = np.reshape(eval_labels_exp[initialTime+2,:],(1,5000))
         
+        pImg2 = np.array(pImg2,dtype=np.uint8)
+        tImg2 = np.array(truthImg,dtype=np.uint8)
+        cvss = chanVeseFunctional(pImg2, tImg2)
+        cvsses.append(cvss)
 
         evalSummary, prediction_exp, truth_exp = convolve_wildfire_test(singleEval,singleEval_labels,modelFnc,model_dir=model_dir)
         print(uc.toc(t1))
@@ -1602,6 +1629,11 @@ if __name__ == "__main__":
             pImg[pImg>toUseThresh] = 1.0
             pImg = pImg*255        
             netImgs.append(pImg2)
+            
+            pImg2 = np.array(pImg2,dtype=np.uint8)
+            tImg2 = np.array(truthImg,dtype=np.uint8)
+            cvss = chanVeseFunctional(pImg2, tImg2)
+            cvsses.append(cvss)
             
             #singleEval[0,0:2500] = np.reshape(pImg,(2500,))
             #singleEval_labels = np.reshape(eval_labels_exp[2999,:],(1,5000))
@@ -1627,15 +1659,17 @@ if __name__ == "__main__":
             plt.ylabel('Hours',fontsize=fs)
             ax.annotate('CNN',xy=(1,4),xycoords='data',textcoords='data',xytext=(1,4),fontsize=fs)
             plt.tight_layout()
-            plt.savefig('timeAnalysis_network%.0f.eps'%(num))
-            plt.savefig('Fig9b%.0f.eps'%(num+1))
+            plt.savefig('..%soutputs%stimeAnalysis_network%.0f.eps'%(os.sep, os.sep, num))
+            plt.savefig('..%soutputs%sFig9b%.0f.eps'%(os.sep, os.sep, num+1))
             
             confusionMatrix = np.array(confusionMatrix)
+            cvsses = np.array(cvsses)
             
             plt.figure(figsize=(16,12))
             plt.plot([12,18,24],confusionMatrix[:,7],'-k',linewidth=lw,label='F-Measure');
             plt.plot([12,18,24],confusionMatrix[:,6],'-.r',linewidth=lw,label='Precision');
             plt.plot([12,18,24],confusionMatrix[:,5],'--b',linewidth=lw,label='Sensitivity');
+            plt.plot([12,18,24],1-cvsses,':g',linewidth=lw+4,label='CVS');
             plt.ylim(0,1.1)
             plt.xlim(11,25)
             plt.xticks([12,18,24])
@@ -1644,7 +1678,7 @@ if __name__ == "__main__":
             plt.legend(fontsize=fs,loc=4)
             plt.tick_params(labelsize=fs)
             plt.tight_layout()
-            plt.savefig('timeAnalysis_fmeasure%.0f.eps'%(num))
-            plt.savefig('Fig9c%.0f.eps'%(num+1))
+            plt.savefig('..%soutputs%stimeAnalysis_fmeasure%.0f.eps'%(os.sep, os.sep, num))
+            plt.savefig('..%soutputs%sFig9c%.0f.eps'%(os.sep, os.sep, num+1))
             
         

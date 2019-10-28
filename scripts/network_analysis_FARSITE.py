@@ -9,10 +9,11 @@ import glob
 import numpy as np
 import h5py
 import matplotlib.pyplot as plt
-from networkDesign3 import cnnModel3, cnnModel4
+from networkDesign import cnnModel3, cnnModel4
 import network_analysis as na
 import util_common as uc
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import os
 
 def readAllData(files,interval=1):
     datas = []
@@ -87,9 +88,9 @@ if __name__ == "__main__":
     epochs = 200001
     bestThresh = 0.41 # Training Data
     index = 0
-    ns = 'farsite_results_redo'
+    ns = '../outputs/farsite_results_redo'
     generatePlots = True
-    train = True
+    train = False
     
     #assert False, "stopped"
 
@@ -116,6 +117,7 @@ if __name__ == "__main__":
     labels = np.array(truths,dtype=np.int64)
         
     t1 = uc.tic()
+    os.environ['CUDA_VISIBLE_DEVICES'] = ""
     evalSummary, prediction_exp, truth_exp = na.convolve_wildfire_test(datas,labels,modelFnc,model_dir=modelDir)
     pImgs = np.reshape(prediction_exp,(prediction_exp.shape[0],50,50,2))
     tImgs = np.reshape(truth_exp,(truth_exp.shape[0],50,50,2))
@@ -177,9 +179,9 @@ if __name__ == "__main__":
     plt.savefig(ns+'_Fa_pdf.eps')
     nBins = 1000
     
-    recallP80, precisionP80, fMeasureP80 = na.getPercentile(confusionMatrix2,nBins,600)
-    recallP90, precisionP90, fMeasureP90 = na.getPercentile(confusionMatrix2,nBins,300)
-    recallP95, precisionP95, fMeasureP95 = na.getPercentile(confusionMatrix2,nBins,150)
+    recallP80, precisionP80, fMeasureP80 = na.getPercentile(confusionMatrix,nBins,600)
+    recallP90, precisionP90, fMeasureP90 = na.getPercentile(confusionMatrix,nBins,300)
+    recallP95, precisionP95, fMeasureP95 = na.getPercentile(confusionMatrix,nBins,150)
     
     recallM = averageConfusionMatrix[5]
     precisionM = averageConfusionMatrix[6]

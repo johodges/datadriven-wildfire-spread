@@ -42,7 +42,7 @@ import math
 import matplotlib.pyplot as plt
 import scipy.signal as scsi
 import skimage
-from networkDesign3 import cnnModel3, cnnModel_e64a128d, cnnModel_e56a28d, cnnModel_unitTest1, cnnModel_e56
+from networkDesign import cnnModel3
 
 class tfTrainedVars(object):
     
@@ -1470,7 +1470,7 @@ if __name__ == "__main__":
     findBestThresh = False
     test = True
     testAll = True
-    generatePlots = True
+    generatePlots = False
     
     # Load data
     inData, outData = readPickledRawData(params['dataRawFile'])
@@ -1486,18 +1486,18 @@ if __name__ == "__main__":
     
     # Organize data for tensorflow
     datas = (inData,outData)
-    testing_data, training_data = splitdata_tf(datas,test_number=test_number,fakeRandom=fakeRandom)
+    #testing_data, training_data = splitdata_tf(datas,test_number=test_number,fakeRandom=fakeRandom)
     if testAll:
         testing_data = datas
-    train_data = np.array(training_data[0],dtype=np.float32)
-    train_labels = np.array(training_data[1]/255,dtype=np.int64)
-    train_labels_exp = datas2labels(train_labels)
         
     eval_data = np.array(testing_data[0],dtype=np.float32)
     eval_labels = np.array(testing_data[1]/255,dtype=np.int64)
     eval_labels_exp = datas2labels(eval_labels)
     #assert False, "Stopped"
     if train:
+        train_data = np.array(training_data[0],dtype=np.float32)
+        train_labels = np.array(training_data[1]/255,dtype=np.int64)
+        train_labels_exp = datas2labels(train_labels)
         convolve_wildfire_train(train_data,train_labels_exp,modelFnc,epochs=num,model_dir=model_dir)
     
     if findBestThresh:

@@ -536,7 +536,7 @@ if __name__ == '__main__':
     
     # User inputs
     queryDateTime = dt.datetime(year=2017,month=7,day=9,hour=6,minute=00)
-    case = 3
+    case = 0
     
     if case == 0:
         tiles = None

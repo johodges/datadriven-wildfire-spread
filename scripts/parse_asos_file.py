@@ -17,7 +17,8 @@ returned.
 import numpy as np
 import datetime as dt
 import math
-from matplotlib.mlab import griddata
+#from matplotlib.mlab import griddata
+from scipy.interpolate import griddata
 import glob
 import pickle
 import sys
@@ -611,8 +612,12 @@ def getSpeedContours(measurements,lat,lon):
     ''' This function will build a contour map of measurements using point
     measurements at known latitude and longitudes.
     '''
-    speedXcontour = griddata(measurements[:,0],measurements[:,1],measurements[:,2],lat,lon,interp='linear').T
-    speedYcontour = griddata(measurements[:,0],measurements[:,1],measurements[:,3],lat,lon,interp='linear').T
+    if True:
+        speedXcontour = griddata(measurements[:,:2][:,::-1],measurements[:,2], (lon, lat), method='linear').T
+        speedYcontour = griddata(measurements[:,:2][:,::-1],measurements[:,3], (lon, lat), method='linear').T
+    else:
+        speedXcontour = griddata(measurements[:,0],measurements[:,1],measurements[:,2],lat,lon,method='linear').T
+        speedYcontour = griddata(measurements[:,0],measurements[:,1],measurements[:,3],lat,lon,method='linear').T
     return speedXcontour, speedYcontour
 
 def queryWindSpeed(queryDateTime,
@@ -625,8 +630,8 @@ def queryWindSpeed(queryDateTime,
     stations = readPickleStations(filename=filename)
     lat, lon = buildCoordinateGrid(stations,resolution=resolution)
     measurements = getStationsMeasurements(stations,queryDateTime,timeRange)
-    speedX, speedY = getSpeedContours(measurements,lat,lon)
     lon, lat = np.meshgrid(lon,lat)
+    speedX, speedY = getSpeedContours(measurements,lat,lon)
     return lat, lon, speedX, speedY
 
 if __name__ == "__main__":
@@ -635,7 +640,7 @@ if __name__ == "__main__":
         case 1: Load pickled data, compute memory requirements
         case 2: Load pickled data, plot data at query time
     '''
-    case = 0
+    case = 2
     filename = '../data-test/asos-stations.txt'
     datadirs=['G:/WildfireResearch/data/asos-fivemin/6401-2016/',
               'G:/WildfireResearch/data/asos-fivemin/6401-2017/']
@@ -664,8 +669,9 @@ if __name__ == "__main__":
         stations = readPickleStations(filename=filename[0:-4]+'.pkl')
         #computeStationsMemory(stations)
         lat, lon = buildCoordinateGrid(stations,resolution=resolution)
+        lat_grid, lon_grid = np.meshgrid(lat, lon)
         measurements = getStationsMeasurements(stations,queryDateTime,timeRange)
-        speedX, speedY = getSpeedContours(measurements,lat,lon)
+        speedX, speedY = getSpeedContours(measurements,lat_grid,lon_grid)
         
         speedX_fig = uc.plotContourWithStates(lat,lon,speedX,label='m/s',
                                               states=None,

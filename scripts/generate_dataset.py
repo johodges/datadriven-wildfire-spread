@@ -15,7 +15,7 @@ import parse_modis_file as pm
 import parse_asos_file as pa
 import remapSwathData as rsd
 
-from parse_asos_file import ASOSMeasurementList, ASOSStation
+#from parse_asos_file import ASOSMeasurementList, ASOSStation
 import pyhdf.SD as phdf
 #import matplotlib.pyplot as plt
 import datetime as dt
@@ -1048,7 +1048,7 @@ if __name__ == "__main__":
     '''
     
     
-    case = 7
+    case = 0
     
     if case == 0:
         tim = uc.tic()

@@ -1,4 +1,4 @@
-name: '../results/rothermelFull_cnnModel3'
+name: '../outputs/rothermelFull_cnnModel3'
 dataRawFile: '../rothermelData/dataRemake3000'
 svdInputs: False
 generatePlots: True
