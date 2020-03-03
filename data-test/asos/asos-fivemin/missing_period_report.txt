@@ -1,5 +1,0 @@
-A transmission-related data loss occured during acquisition of ASOS high resolution 
-(one and five minute) data resulting in the loss of approximately 4550 station files 
-(around 4 million observations). It appears, at this point, that this data will not be 
-recovered. The period affected is March 31, 2010 through May 3, 2010. In the event that 
-any of this data is recovered in the future, it will be posted here. 
