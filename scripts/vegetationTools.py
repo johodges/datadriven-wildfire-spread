@@ -368,11 +368,12 @@ if __name__ == "__main__":
     ids = ['cbh', 'cbd', 'ch', 'cc', 'fbfm13', 'fbfm40', 'asp_2016', 'dem_2016', 'slpd_2016']
     
     # Ouptut options
-    resolution = 50
-    queryPoint = np.array([-2044805, 1565987, 0.0], dtype=np.float) # Same point in meters
-    queryPoint = np.array([-118.78, 34.94, 0.0], dtype=np.float) # Same point in degrees
+    resolution = 1000
+    #queryPoint = np.array([-2144805, 1565987, 0.0], dtype=np.float) # Same point in meters
+    queryPoint = np.array([-121.896571, 38.030451, 0.0], dtype=np.float) # Same point in degrees
+    queryPoint = np.array([-116.680072, 32.808536, 0.0], dtype=np.float) # Same point in degrees
     queryPointUnits = 'degree' # either degree or meter
-    axisType = 'degree' # either degree, meter, or kilometer
+    axisType = 'kilometer' # either degree, meter, or kilometer
     displayType = 'contour' # either contour or image
     ###########################################################################
     # END USER INPUTS
@@ -461,6 +462,7 @@ if __name__ == "__main__":
         ax[plotR][plotC].set_title(names[i], fontsize=fs)
         ax[plotR][plotC].ticklabel_format(useOffset=False, style='plain')
     plt.tight_layout()
+    plt.show()
     
     # Build LCP file for FARSITE
     dictNames1 = ['Elevation', 'Slope', 'Aspect', 'Fuel Model 40', 'Canopy Cover']

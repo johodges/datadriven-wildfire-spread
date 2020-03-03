@@ -536,7 +536,7 @@ if __name__ == '__main__':
     
     # User inputs
     queryDateTime = dt.datetime(year=2017,month=7,day=9,hour=6,minute=00)
-    case = 0
+    case = 1
     
     if case == 0:
         tiles = None
@@ -559,7 +559,8 @@ if __name__ == '__main__':
                                                  datadir="G:/WildfireResearch/data/aqua_daily_activefires/",
                                                  sdsname='FireMask')
         af_fig = uc.plotContourWithStates(af_lat,af_lon,af_data,states=states,
-                                          clim=np.linspace(0,9,10),label='AF')
+                                          clim=np.linspace(0,9,10),label='AF',
+                                          xlim=[-121.5, -118.5], ylim=[33.5, 36.5], saveFig=True)
         
         af_mem = (sys.getsizeof(af_data)+sys.getsizeof(af_lat)+sys.getsizeof(af_lon))/1024**2
         

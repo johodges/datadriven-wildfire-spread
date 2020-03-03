@@ -126,7 +126,7 @@ def plotContourWithStates(lat,lon,data,
     if saveFig:
         fntsize = 80
         lnwidth = 10
-        fig = plt.figure(figsize=(48,32),tight_layout=True)
+        fig = plt.figure(figsize=(48,38),tight_layout=True)
         #fig = plt.figure(figsize=(12,8),tight_layout=True)
 
     else:
@@ -168,7 +168,7 @@ def plotContourWithStates(lat,lon,data,
         if ylim is None:
             ylim = [24,50]
     else:
-        ax1.plot(states[:,1],states[:,0],'-k')
+        #ax1.plot(states[:,1],states[:,0],'-k')
         if xlim is None:
             xlim = [-125,-113]
         if ylim is None:
@@ -187,6 +187,7 @@ def plotContourWithStates(lat,lon,data,
         
         plt.clf()
         plt.close(fig)
+        print(saveName)
     
     return fig
 
