@@ -70,6 +70,10 @@ def readSpecH5(specName):
 if __name__ == "__main__":
     inDir = 'E:/projects/wildfire-research/farsite/results/train/lowres_2/'
     testDir = 'E:/projects/wildfire-research/farsite/results/test/lowres_2/'
+    
+    inDir = 'I:\\wildfire-research\\train\\lowres_2\\'
+    testDir = 'I:\\wildfire-research\\test\\lowres_2\\'
+    
     trainFiles = glob.glob(inDir+'run*.h5')[:2000]
     trainFiles2 = glob.glob(inDir+'run*.h5')[2000:]
     testFiles = glob.glob(testDir+'run*.h5')[:2000]
